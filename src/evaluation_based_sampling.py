@@ -241,9 +241,9 @@ def run_deterministic_tests():
 
 def run_probabilistic_tests():
 
-    #num_samples=1e4
-    num_samples=10
-    max_p_value = 1e-4
+    num_samples=1e4
+    #num_samples=10
+    max_p_value =1e-4
 
     # for i in range(1,7):
     for i in range(1,2):
@@ -271,8 +271,7 @@ def run_probabilistic_tests():
         truth = load_truth('./programs/tests/probabilistic/test_{}.truth'.format(i))
         p_val = run_prob_test(stream, truth, num_samples)
 
-        # print('p value', p_val)
-        # assert(p_val > max_p_value)
+        assert(p_val > max_p_value)
 
     print('All probabilistic tests passed')
 
