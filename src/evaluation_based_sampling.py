@@ -102,16 +102,16 @@ def _squareroot(x):
     return torch.sqrt(x)
 
 # OPS
-basic_ops = {'+':torch.add,\
-             '-':torch.sub,\
-             '*':torch.mul,\
+basic_ops = {'+':torch.add,
+             '-':torch.sub,
+             '*':torch.mul,
              '/':torch.div
 }
 
 math_ops = {'sqrt': lambda x: _squareroot(x)
 }
 
-data_struct_ops = {'vector': lambda x: _vector(x),\
+data_struct_ops = {'vector': lambda x: _vector(x),
                    'hash-map': lambda x: _hashmap(x)
 }
 
@@ -123,9 +123,13 @@ data_interact_ops = {'first':lambda x: x[0],      # retrieves the first element 
                      'put':lambda x, idx, value: _put(x, idx, value) # (put e1 e2 e3) replaces the element at index/key e2 with the value e3 in a vector or hash-map e1.
 }
 
-dist_ops = {"normal":lambda mu, sig: distributions.normal.Normal(mu, sig),\
-            "beta":lambda a, b: distributions.beta.Beta(a, b),\
-            "exponential":lambda rate: distributions.exponential.Exponential(rate)
+dist_ops = {"normal":lambda mu, sig: distributions.normal.Normal(mu, sig),
+            "beta":lambda a, b: distributions.beta.Beta(a, b),
+            "exponential":lambda rate: distributions.exponential.Exponential(rate),
+            "uniform": lambda low, high: distributions.exponential.Uniform(low, high)
+}
+
+assign_ops = {"let": 0,
 }
 
 #----------------------------Evaluation Functions -----------------------------#
@@ -142,10 +146,11 @@ def evaluate_program(ast):
 
     if len(ast) == 1:
         ast = ast[0]
-        #import pdb; pdb.set_trace()
-        #print('asdfasdf', ast)
+        import pdb; pdb.set_trace()
+        print('asdfasdf', ast)
         try:
             root, *tail = ast
+            print('--->', root)
             # Basic primitives
             if root in basic_ops.keys():
                 op_func = basic_ops[root]
@@ -171,20 +176,44 @@ def evaluate_program(ast):
                     get_data_struct, _ = evaluate_program([e1])
                     return [op_func(get_data_struct, e2), None]
                 else:
-                    # # ['First'/'last', ['vector', 2, 3, 4, 5]]
+                    # ['First'/'last', ['vector', 2, 3, 4, 5]]
                     get_data_struct, _ = evaluate_program(tail)
                     return [op_func(get_data_struct), None]
-            # Sample
-            elif root == 'sample':
-                sampler = (evaluate_program(tail)[0]).sample()
-                return sampler
+            # Assign
+            elif root in assign_ops.keys():
+                # First part of
+                if root == 'let':
+                    # (let [params] body)
+                    # tail-0: params
+                    for each_para in range(0, len(tail[0]), 2):
+                        global eval_assign;
+                         eval_assign = evaluate_program([tail[0][each_para+1]])[0]
+                        try:
+                            exec(f"{tail[0][each_para]} = eval_assign", globals())
+                        except Exception as e:
+                            print(str(e))
+                        print(a)
+
+                    # tail-1 body
+                    for each_para in range(0, len(tail[1])):
+                        root_, *tail_ =
+
+                return [None, None]
             # Get distribution
             elif root in dist_ops.keys():
                 op_func = dist_ops[root]
                 if len(tail) == 2:
                     para1 = evaluate_program([tail[0]])[0]
                     para2 = evaluate_program([tail[1]])[0]
-                return [op_func(para1, para2), None]
+                    return [op_func(para1, para2), None]
+                else:
+                    # Exponential has only one parameter
+                    para1 = evaluate_program([tail[0]])[0]
+                    return [op_func(para1), None]
+            # Sample
+            elif root == 'sample':
+                sampler = (evaluate_program(tail)[0]).sample()
+                return sampler
             else:
                 # Most likely a single element list
                 if tail == []:
@@ -246,7 +275,7 @@ def run_probabilistic_tests():
     max_p_value =1e-4
 
     # for i in range(1,7):
-    for i in range(1,2):
+    for i in range(4,5):
         # Note: this path should be with respect to the daphne path!
         # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/tests/probabilistic/test_{i}.daphne'])
         # ast_path = f'./jsons/tests/probabilistic/test_{i}.json'
@@ -258,20 +287,24 @@ def run_probabilistic_tests():
             ast = json.load(json_file)
         print(ast)
 
-        stream = get_stream(ast)
+        eval = evaluate_program(ast)
+        print(eval)
 
-        print(stream)
+        # stream = get_stream(ast)
+        #
+        # print(stream)
+        #
+        # samples = []
+        # for k in range(4):
+        #     # print(next(stream))
+        #     samples.append(next(stream))
+        # print(samples)
 
-        samples = []
-        for k in range(4):
-            # print(next(stream))
-            samples.append(next(stream))
-        print(samples)
+        print('Running evaluation-based-sampling for probabilistic test number {}:'.format(str(i)))
+        #truth = load_truth('./programs/tests/probabilistic/test_{}.truth'.format(i))
+        #p_val = run_prob_test(stream, truth, num_samples)
 
-        truth = load_truth('./programs/tests/probabilistic/test_{}.truth'.format(i))
-        p_val = run_prob_test(stream, truth, num_samples)
-
-        assert(p_val > max_p_value)
+        #assert(p_val > max_p_value)
 
     print('All probabilistic tests passed')
 
