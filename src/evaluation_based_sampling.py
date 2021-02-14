@@ -1,7 +1,6 @@
 import json
-import math
 import torch
-import operator
+import torch.distributions as distributions
 from daphne import daphne
 from tests import is_tol, run_prob_test,load_truth
 
@@ -124,6 +123,10 @@ data_interact_ops = {'first':lambda x: x[0],      # retrieves the first element 
                      'put':lambda x, idx, value: _put(x, idx, value) # (put e1 e2 e3) replaces the element at index/key e2 with the value e3 in a vector or hash-map e1.
 }
 
+dist_ops = {"normal":lambda mu, sig: distributions.normal.Normal(mu, sig),\
+            "beta":lambda a, b: distributions.beta.Beta(a, b),\
+            "exponential":lambda rate: distributions.exponential.Exponential(rate)
+}
 
 #----------------------------Evaluation Functions -----------------------------#
 def evaluate_program(ast):
@@ -139,6 +142,8 @@ def evaluate_program(ast):
 
     if len(ast) == 1:
         ast = ast[0]
+        #import pdb; pdb.set_trace()
+        #print('asdfasdf', ast)
         try:
             root, *tail = ast
             # Basic primitives
@@ -169,6 +174,17 @@ def evaluate_program(ast):
                     # # ['First'/'last', ['vector', 2, 3, 4, 5]]
                     get_data_struct, _ = evaluate_program(tail)
                     return [op_func(get_data_struct), None]
+            # Sample
+            elif root == 'sample':
+                sampler = (evaluate_program(tail)[0]).sample()
+                return sampler
+            # Get distribution
+            elif root in dist_ops.keys():
+                op_func = dist_ops[root]
+                if len(tail) == 2:
+                    para1 = evaluate_program([tail[0]])[0]
+                    para2 = evaluate_program([tail[1]])[0]
+                return [op_func(para1, para2), None]
             else:
                 # Most likely a single element list
                 if tail == []:
@@ -225,29 +241,47 @@ def run_deterministic_tests():
 
 def run_probabilistic_tests():
 
-    num_samples=1e4
+    #num_samples=1e4
+    num_samples=10
     max_p_value = 1e-4
 
-    for i in range(11,13):
-        #note: this path should be with respect to the daphne path!
-        ast = daphne(['desugar', '-i', '../CS532-HW2/programs/tests/probabilistic/test_{}.daphne'.format(i)])
-        truth = load_truth('programs/tests/probabilistic/test_{}.truth'.format(i))
+    # for i in range(1,7):
+    for i in range(1,2):
+        # Note: this path should be with respect to the daphne path!
+        # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/tests/probabilistic/test_{i}.daphne'])
+        # ast_path = f'./jsons/tests/probabilistic/test_{i}.json'
+        # with open(ast_path, 'w') as fout:
+        #     json.dump(ast, fout, indent=2)
+
+        ast_path = f'./jsons/tests/probabilistic/test_{i}.json'
+        with open(ast_path) as json_file:
+            ast = json.load(json_file)
+        print(ast)
 
         stream = get_stream(ast)
 
+        print(stream)
+
+        samples = []
+        for k in range(4):
+            # print(next(stream))
+            samples.append(next(stream))
+        print(samples)
+
+        truth = load_truth('./programs/tests/probabilistic/test_{}.truth'.format(i))
         p_val = run_prob_test(stream, truth, num_samples)
 
-        print('p value', p_val)
-        assert(p_val > max_p_value)
+        # print('p value', p_val)
+        # assert(p_val > max_p_value)
 
     print('All probabilistic tests passed')
 
 
 if __name__ == '__main__':
     daphne_path = '/Users/tony/Documents/prog-prob/CS539-HW-2'
-    run_deterministic_tests()
+    #run_deterministic_tests()
 
-    # run_probabilistic_tests()
+    run_probabilistic_tests()
     #
     #
     # for i in range(1,5):
