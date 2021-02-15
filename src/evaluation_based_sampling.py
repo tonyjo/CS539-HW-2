@@ -101,6 +101,14 @@ def _squareroot(x):
         x = torch.tensor(x, dtype=torch.float32)
     return torch.sqrt(x)
 
+def _totensor(x, dtype=torch.float32):
+    if not torch.is_tensor(x):
+        if isinstance(x, list):
+            x = torch.tensor(x, dtype=dtype)
+        else:
+            x = torch.tensor([x], dtype=dtype)
+    return x
+
 # OPS
 basic_ops = {'+':torch.add,
              '-':torch.sub,
@@ -123,10 +131,10 @@ data_interact_ops = {'first':lambda x: x[0],      # retrieves the first element 
                      'put':lambda x, idx, value: _put(x, idx, value) # (put e1 e2 e3) replaces the element at index/key e2 with the value e3 in a vector or hash-map e1.
 }
 
-dist_ops = {"normal":lambda mu, sig: distributions.normal.Normal(mu, sig),
-            "beta":lambda a, b: distributions.beta.Beta(a, b),
-            "exponential":lambda rate: distributions.exponential.Exponential(rate),
-            "uniform": lambda low, high: distributions.uniform.Uniform(low, high)
+dist_ops = {"normal":lambda mu, sig: distributions.normal.Normal(loc=mu, scale=sig),
+            "beta":lambda a, b: distributions.beta.Beta(concentration1=a, concentration0=b),
+            "exponential":lambda rate: distributions.exponential.Exponential(rate=rate),
+            "uniform": lambda low, high: distributions.uniform.Uniform(low=low, high=high)
 }
 
 cond_ops={"<":  lambda a, b: a < b,
@@ -137,7 +145,7 @@ cond_ops={"<":  lambda a, b: a < b,
 }
 
 # Global vars
-pho = {}
+rho = {}
 DEBUG = True # Set to true to see intermediate outputs for debugging purposes
 #----------------------------Evaluation Functions -----------------------------#
 def evaluate_program(ast, sig=None, l={}):
@@ -153,7 +161,7 @@ def evaluate_program(ast, sig=None, l={}):
 
     if len(ast) == 1:
         ast = ast[0]
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         if DEBUG:
             print('Current program: ', ast)
         try:
@@ -213,12 +221,17 @@ def evaluate_program(ast, sig=None, l={}):
                 try:
                     a = a[0]
                 except:
-                    # In case of functions returning only a single value and not sigma
+                    # In case of functions returning only a single value & not sigma
                     pass
                 try:
                     b = b[0]
                 except:
                     pass
+                # If torch tensors convert to python data struct for comparison
+                if torch.is_tensor(a):
+                    a = a.tolist()
+                if torch.is_tensor(b):
+                    b = b.tolist()
                 if DEBUG:
                     print('Eval Conditional param-1: ', a)
                     print('Eval Conditional param-2: ', b)
@@ -260,12 +273,36 @@ def evaluate_program(ast, sig=None, l={}):
                     return evaluate_program([tail[1]], sig, l=l)
                 else:
                     return evaluate_program([tail[2]], sig, l=l)
+            # Functions
+            elif root == "defn":
+                # (defn name[param] body, )
+                if DEBUG:
+                    print('Defn Tail: ', tail)
+                try:
+                    fnname   = tail[0]
+                    fnparams = tail[1]
+                    fnbody   = tail[2]
+                except:
+                    raise AssertionError('Failed to define function!')
+                if DEBUG:
+                    print('Function Name : ', fnname)
+                    print('Function Param: ', fnparams)
+                    print('Function Body : ', fnbody)
+                # Define functions
+                rho[fnname] = [fnparams, fnbody]
+                if DEBUG:
+                    print('Local Params : ', l)
+                    print('Global Funcs : ', rho)
+                return [None, None]
             # Get distribution
             elif root in dist_ops.keys():
                 op_func = dist_ops[root]
                 if len(tail) == 2:
                     para1 = evaluate_program([tail[0]], sig, l=l)[0]
                     para2 = evaluate_program([tail[1]], sig, l=l)[0]
+                    # Make sure to have it in torch tensor
+                    para1 = _totensor(x=para1)
+                    para2 = _totensor(x=para2)
                     if DEBUG:
                         print('Sampler Parameter-1: ', para1)
                         print('Sampler Parameter-2: ', para2)
@@ -273,6 +310,8 @@ def evaluate_program(ast, sig=None, l={}):
                 else:
                     # Exponential has only one parameter
                     para1 = evaluate_program([tail[0]], sig, l=l)[0]
+                    # Make sure to have it in torch tensor
+                    para1 = _totensor(x=para1)
                     if DEBUG:
                         print('Sampler Parameter-1: ', para1)
                     return [op_func(para1), sig]
@@ -287,22 +326,88 @@ def evaluate_program(ast, sig=None, l={}):
             else:
                 # Most likely a single element list
                 if DEBUG:
-                    print('Root Value: ', )
-                    print('Tail Value: '. )
-                if tail == []:
+                    print('End case Root Value: ', root)
+                    print('End case Tail Value: ', tail)
+                if tail == [] or len(ast) == 2:
                     # Check in local vars
                     if root in l.keys():
                         return [l[root], sig]
+                    # Check in Functions vars
+                    elif root in rho.keys():
+                        fnparams_ = {}
+                        fnparams, fnbody =rho[root]
+                        if len(tail) != len(fnparams):
+                            raise AssertionError('Function params mis-match!')
+                        else:
+                            for k in range(len(tail)):
+                                fnparams_[fnparams[k]] = evaluate_program([tail[k]], sig, l=l)[0]
+                        print('Function Params :', fnparams_)
+                        # Replace fnbody params with values
+                        for k in range(len(fnbody)):
+                            if fnbody[k] in fnparams_.keys():
+                                fnbody[k] = fnparams_[fnbody[k]]
+                        if DEBUG:
+                            print('Function Body :', fnbody)
+                        # Evalute function body
+                        eval_output = [evaluate_program([fnbody], sig, l=l)[0], sig]
+                        if DEBUG:
+                            print('Function evaluation output: ', eval_output)
+                        return eval_output
                     else:
                         return [root, sig]
                 else:
-                    raise AssertionError('Unknown list with unsupported ops.')
+                    if DEBUG:
+                        print('End case ast Value: ', ast)
+                        print('End case Local Params :', l)
+                    # Maybe a single variable "mu" for split as root=m and tail=u
+                    if ast in l.keys():
+                        return [l[ast], sig]
+                    # Check in Functions vars
+                    elif ast in rho.keys():
+                        fnparams_ = {}
+                        fnparams, fnbody =rho[ast]
+                        if len(tail) != len(fnparams):
+                            raise AssertionError('Function params mis-match!')
+                        else:
+                            for k in range(len(tail)):
+                                fnparams_[fnparams[k]] = evaluate_program([tail[k]], sig, l=l)[0]
+                        if DEBUG:
+                            print('Function Params :', fnparams_)
+                        # Replace fnbody params with values
+                        for k in range(len(fnbody)):
+                            if fnbody[k] in fnparams_.keys():
+                                fnbody[k] = fnparams_[fnbody[k]]
+                        if DEBUG:
+                            print('Function Body :', fnbody)
+                        # Evalute function body
+                        eval_output = [evaluate_program([fnbody], sig, l=l)[0], sig]
+                        if DEBUG:
+                            print('Function evaluation output: ', eval_output)
+                        return eval_output
+                    else:
+                        raise AssertionError('Unknown list with unsupported ops.')
         except:
             # Just a single element
             return [ast, sig]
-
     else:
-        raise AssertionError('Unsupported!')
+        outputs = []
+        for i in range(0, len(ast)):
+            ast_i = ast[i]
+            try:
+                cisigma = evaluate_program([ast_i], sig, l=l)
+                if i != 0:
+                    if len(cisigma) == 2:
+                        outputs.extend([cisigma[0]])
+                    else:
+                        outputs.extend([cisigma])
+            except:
+                raise AssertionError('Unsupported!')
+
+        outputs_ = [output for output in outputs if output is not None]
+        if len(outputs_) == 1:
+            outputs_ = outputs_[0]
+
+        return [outputs_, sig]
 
     return [None, sig]
 
@@ -312,7 +417,7 @@ def get_stream(ast):
     Return a stream of prior samples
     """
     while True:
-        yield evaluate_program(ast)
+        yield evaluate_program(ast)[0]
 
 
 #------------------------------Test Functions --------------------------------#
@@ -352,7 +457,7 @@ def run_probabilistic_tests():
     max_p_value =1e-4
 
     # for i in range(1,7):
-    for i in range(5,6):
+    for i in range(6,7):
         # Note: this path should be with respect to the daphne path!
         # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/tests/probabilistic/test_{i}.daphne'])
         # ast_path = f'./jsons/tests/probabilistic/test_{i}.json'
@@ -390,10 +495,14 @@ if __name__ == '__main__':
     daphne_path = '/Users/tony/Documents/prog-prob/CS539-HW-2'
     #run_deterministic_tests()
 
-    run_probabilistic_tests()
+    # run_probabilistic_tests()
     #
-    #
-    # for i in range(1,5):
-    #     ast = daphne(['desugar', '-i', '../CS532-HW2/programs/{}.daphne'.format(i)])
-    #     print('\n\n\nSample of prior of program {}:'.format(i))
-    #     print(evaluate_program(ast)[0])
+
+    for i in range(1,5):
+        ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
+        ast_path = f'./jsons/tests/final/{i}.json'
+        with open(ast_path, 'w') as fout:
+            json.dump(ast, fout, indent=2)
+        print('\n\n\nSample of prior of program {}:'.format(i))
+        
+        # print(evaluate_program(ast)[0])
