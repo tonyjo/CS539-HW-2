@@ -146,7 +146,7 @@ cond_ops={"<":  lambda a, b: a < b,
 
 # Global vars
 rho = {}
-DEBUG = False # Set to true to see intermediate outputs for debugging purposes
+DEBUG = True # Set to true to see intermediate outputs for debugging purposes
 #----------------------------Evaluation Functions -----------------------------#
 def evaluate_program(ast, sig=None, l={}):
     """
@@ -164,11 +164,17 @@ def evaluate_program(ast, sig=None, l={}):
 
     if len(ast) == 1:
         ast = ast[0]
-        #import pdb; pdb.set_trace()
+        import pdb; pdb.set_trace()
         if DEBUG:
             print('Current program: ', ast)
         try:
-            root, *tail = ast
+            # Check if a single string ast ['mu']
+            if len(ast) == 1:
+                if isinstance(ast[0], str):
+                    root = ast[0]
+                    tail = []
+            else:
+                root, *tail = ast
             if DEBUG:
                 print('Current OP: ', root)
                 print('Current TAIL: ', tail)
@@ -263,11 +269,16 @@ def evaluate_program(ast, sig=None, l={}):
                     except:
                         pass
                     l[v1] = e1
+                # Check for single instance string
+                if isinstance(tail[1], str):
+                    recur_program = [tail[1]]
+                else:
+                    recur_program = tail[1]
                 if DEBUG:
                     print('Local Params :  ', l)
-                    print('Recursive Body: ', tail[1])
+                    print('Recursive Body: ', recur_program)
                 # tail-1 body
-                return evaluate_program([tail[1]], sig, l=l)
+                return evaluate_program([recur_program], sig, l=l)
             # Assign
             elif root == "if":
                 # (if e1 e2 e3)
@@ -342,6 +353,35 @@ def evaluate_program(ast, sig=None, l={}):
                 if DEBUG:
                     print('Sampler: ', sampler)
                 return [sampler.sample(), sig]
+            # Observe
+            elif root == 'observe':
+                if len(tail) == 2:
+                    # Check for single referenced string
+                    if isinstance(tail[0], str):
+                        ob_pm1 = [tail[0]]
+                    else:
+                        ob_pm1 = tail[0]
+                    if isinstance(tail[1], str):
+                        ob_pm2 = [tail[1]]
+                    else:
+                        ob_pm2 = tail[1]
+                else:
+                    raise AssertionError('Unknown list of observe params!')
+                if DEBUG:
+                    print('Observe Param-1: ', ob_pm1)
+                    print('Observe Param-2: ', ob_pm2)
+                # Evaluate observe params
+                dist  = evaluate_program([ob_pm1], sig, l=l)[0]
+                value = evaluate_program([ob_pm2], sig, l=l)[0]
+                value = _totensor(x=value)
+                if DEBUG:
+                    print('Observe Likelihood : ', dist)
+                    print('Observed Value     : ', value)
+                # Sample from the distribution
+                observed_lik = dist.log_prob(value=value)
+                if DEBUG:
+                    print('Observe output: ', observed_lik)
+                return [observed_lik, sig]
             else:
                 # Most likely a single element list
                 if DEBUG:
@@ -517,15 +557,25 @@ def run_probabilistic_tests():
 
 if __name__ == '__main__':
     daphne_path = '/Users/tony/Documents/prog-prob/CS539-HW-2'
-    run_deterministic_tests()
+    #run_deterministic_tests()
 
-    run_probabilistic_tests()
+    #run_probabilistic_tests()
 
+    for i in range(1,2):
     # for i in range(1,5):
-    #     ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
-    #     ast_path = f'./jsons/tests/final/{i}.json'
-    #     with open(ast_path, 'w') as fout:
-    #         json.dump(ast, fout, indent=2)
-    #     print('\n\n\nSample of prior of program {}:'.format(i))
-    #
-        # print(evaluate_program(ast)[0])
+        # Note: this path should be with respect to the daphne path!
+        # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
+        # ast_path = f'./jsons/tests/final/{i}.json'
+        # with open(ast_path, 'w') as fout:
+        #     json.dump(ast, fout, indent=2)
+        # print('\n\n\nSample of prior of program {}:'.format(i))
+
+        ast_path = f'./jsons/tests/final/{i}.json'
+        with open(ast_path) as json_file:
+            ast = json.load(json_file)
+        print(ast)
+
+        print(evaluate_program(ast))
+
+        # Empty globals funcs
+        rho = {}
