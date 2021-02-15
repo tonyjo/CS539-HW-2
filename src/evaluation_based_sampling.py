@@ -126,14 +126,21 @@ data_interact_ops = {'first':lambda x: x[0],      # retrieves the first element 
 dist_ops = {"normal":lambda mu, sig: distributions.normal.Normal(mu, sig),
             "beta":lambda a, b: distributions.beta.Beta(a, b),
             "exponential":lambda rate: distributions.exponential.Exponential(rate),
-            "uniform": lambda low, high: distributions.exponential.Uniform(low, high)
+            "uniform": lambda low, high: distributions.uniform.Uniform(low, high)
 }
 
-assign_ops = {"let": 0,
+cond_ops={"<":  lambda a, b: a < b,
+          ">":  lambda a, b: a > b,
+          ">=": lambda a, b: a >= b,
+          "<=": lambda a, b: a <= b,
+          "|":  lambda a, b: a or b,
 }
 
+# Global vars
+pho = {}
+DEBUG = True # Set to true to see intermediate outputs for debugging purposes
 #----------------------------Evaluation Functions -----------------------------#
-def evaluate_program(ast):
+def evaluate_program(ast, sig=None, l={}):
     """
     Evaluate a program as desugared by daphne, generate a sample from the prior
     Args:
@@ -142,92 +149,162 @@ def evaluate_program(ast):
     """
     # Empty list
     if not ast:
-        return [False, None]
+        return [False, sig]
 
     if len(ast) == 1:
         ast = ast[0]
         import pdb; pdb.set_trace()
-        print('asdfasdf', ast)
+        if DEBUG:
+            print('Current program: ', ast)
         try:
             root, *tail = ast
-            print('--->', root)
+            if DEBUG:
+                print('Current OP: ', root)
             # Basic primitives
             if root in basic_ops.keys():
                 op_func = basic_ops[root]
-                return [op_func(float(tail[0]), evaluate_program(tail[1:])[0]), None]
+                return [op_func(float(tail[0]), evaluate_program(tail[1:], sig, l=l)[0]), sig]
             if root in math_ops.keys():
                 op_func = math_ops[root]
-                return [op_func(tail), None]
+                return [op_func(tail), sig]
             # Data structures-- list and hash-map
             elif root in data_struct_ops.keys():
                 op_func = data_struct_ops[root]
-                return [op_func(tail), None]
+                return [op_func(tail), sig]
             # Data structures interaction
             elif root in data_interact_ops.keys():
                 op_func = data_interact_ops[root]
                 if root == 'put':
                     # ['put', ['vector', 2, 3, 4, 5], 2, 3]
                     e1, e2, e3 = tail
-                    get_data_struct, _ = evaluate_program([e1])
-                    return [op_func(get_data_struct, e2, e3), None]
+                    if isinstance(e1, list):
+                        get_data_struct, _ = evaluate_program([e1], sig, l=l)
+                    else:
+                        # Most likely a pre-defined varibale in l
+                        get_data_struct = l[e1]
+                    return [op_func(get_data_struct, e2, e3), sig]
                 elif root == 'remove' or root == 'append' or root == 'get':
                     # ['remove'/'append'/'get', ['vector', 2, 3, 4, 5], 2]
                     e1, e2 = tail
-                    get_data_struct, _ = evaluate_program([e1])
-                    return [op_func(get_data_struct, e2), None]
+                    if isinstance(e1, list):
+                        get_data_struct, _ = evaluate_program([e1], sig, l=l)
+                    else:
+                        # Most likely a pre-defined varibale in l
+                        get_data_struct = l[e1]
+                    return [op_func(get_data_struct, e2), sig]
                 else:
                     # ['First'/'last', ['vector', 2, 3, 4, 5]]
-                    get_data_struct, _ = evaluate_program(tail)
-                    return [op_func(get_data_struct), None]
+                    if isinstance(e1, list):
+                        get_data_struct, _ = evaluate_program([e1], sig, l=l)
+                    else:
+                        # Most likely a pre-defined varibale in l
+                        get_data_struct = l[e1]
+                    get_data_struct, _ = evaluate_program(tail, sig, l=l)
+                    return [op_func(get_data_struct), sig]
+            # Conditionals
+            elif root in cond_ops.keys():
+                # (< a b)
+                op_func = cond_ops[root]
+                if DEBUG:
+                    print('Conditional param-1: ', tail[0])
+                    print('Conditional param-2: ', tail[1])
+                a = evaluate_program([tail[0]], sig, l=l)
+                b = evaluate_program([tail[1]], sig, l=l)
+                try:
+                    a = a[0]
+                except:
+                    # In case of functions returning only a single value and not sigma
+                    pass
+                try:
+                    b = b[0]
+                except:
+                    pass
+                if DEBUG:
+                    print('Eval Conditional param-1: ', a)
+                    print('Eval Conditional param-2: ', b)
+                return [op_func(a, b), sig]
             # Assign
-            elif root in assign_ops.keys():
-                # First part of
-                if root == 'let':
-                    # (let [params] body)
-                    # tail-0: params
-                    for each_para in range(0, len(tail[0]), 2):
-                        global eval_assign;
-                         eval_assign = evaluate_program([tail[0][each_para+1]])[0]
-                        try:
-                            exec(f"{tail[0][each_para]} = eval_assign", globals())
-                        except Exception as e:
-                            print(str(e))
-                        print(a)
-
-                    # tail-1 body
-                    for each_para in range(0, len(tail[1])):
-                        root_, *tail_ =
-
-                return [None, None]
+            elif root == 'let':
+                # (let [params] body)
+                # tail-0: params
+                if DEBUG:
+                    print('Total params in let: ', len(tail[0]))
+                for e1 in range(0, len(tail[0]), 2):
+                    if DEBUG:
+                        print('Vars: ', tail[0][e1])
+                        print('Expr: ', tail[0][e1+1])
+                    v1 = tail[0][e1]
+                    e1 = evaluate_program([tail[0][e1+1]], sig, l=l)
+                    try:
+                        # In case of sampler only a single return
+                        e1 = e1[0]
+                    except:
+                        pass
+                    l[v1] = e1
+                if DEBUG:
+                    print('Local Params :  ', l)
+                    print('Recursive Body: ', tail[1])
+                # tail-1 body
+                return evaluate_program([tail[1]], sig, l=l)
+            # Assign
+            elif root == "if":
+                # (if e1 e2 e3)
+                if DEBUG:
+                    print('Conditonal Expr1 :  ', tail[0])
+                    print('Conditonal Expr2 :  ', tail[1])
+                    print('Conditonal Expr3 :  ', tail[2])
+                e1_, sig = evaluate_program([tail[0]], sig, l=l)
+                if DEBUG:
+                    print('Conditonal eval :  ', e1_)
+                if e1_:
+                    return evaluate_program([tail[1]], sig, l=l)
+                else:
+                    return evaluate_program([tail[2]], sig, l=l)
             # Get distribution
             elif root in dist_ops.keys():
                 op_func = dist_ops[root]
                 if len(tail) == 2:
-                    para1 = evaluate_program([tail[0]])[0]
-                    para2 = evaluate_program([tail[1]])[0]
-                    return [op_func(para1, para2), None]
+                    para1 = evaluate_program([tail[0]], sig, l=l)[0]
+                    para2 = evaluate_program([tail[1]], sig, l=l)[0]
+                    if DEBUG:
+                        print('Sampler Parameter-1: ', para1)
+                        print('Sampler Parameter-2: ', para2)
+                    return [op_func(para1, para2), sig]
                 else:
                     # Exponential has only one parameter
-                    para1 = evaluate_program([tail[0]])[0]
-                    return [op_func(para1), None]
+                    para1 = evaluate_program([tail[0]], sig, l=l)[0]
+                    if DEBUG:
+                        print('Sampler Parameter-1: ', para1)
+                    return [op_func(para1), sig]
             # Sample
             elif root == 'sample':
-                sampler = (evaluate_program(tail)[0]).sample()
-                return sampler
+                if DEBUG:
+                    print('Sampler program: ', tail)
+                sampler = evaluate_program(tail, sig, l=l)[0]
+                if DEBUG:
+                    print('Sampler: ', sampler)
+                return sampler.sample()
             else:
                 # Most likely a single element list
+                if DEBUG:
+                    print('Root Value: ', )
+                    print('Tail Value: '. )
                 if tail == []:
-                    return [root, None]
+                    # Check in local vars
+                    if root in l.keys():
+                        return [l[root], sig]
+                    else:
+                        return [root, sig]
                 else:
                     raise AssertionError('Unknown list with unsupported ops.')
         except:
             # Just a single element
-            return [ast, None]
+            return [ast, sig]
 
     else:
         raise AssertionError('Unsupported!')
 
-    return [None, None]
+    return [None, sig]
 
 
 def get_stream(ast):
@@ -275,7 +352,7 @@ def run_probabilistic_tests():
     max_p_value =1e-4
 
     # for i in range(1,7):
-    for i in range(4,5):
+    for i in range(5,6):
         # Note: this path should be with respect to the daphne path!
         # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/tests/probabilistic/test_{i}.daphne'])
         # ast_path = f'./jsons/tests/probabilistic/test_{i}.json'
@@ -290,8 +367,8 @@ def run_probabilistic_tests():
         eval = evaluate_program(ast)
         print(eval)
 
-        # stream = get_stream(ast)
-        #
+        stream = get_stream(ast)
+
         # print(stream)
         #
         # samples = []
