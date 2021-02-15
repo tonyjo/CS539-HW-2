@@ -146,7 +146,7 @@ cond_ops={"<":  lambda a, b: a < b,
 
 # Global vars
 rho = {}
-DEBUG = True # Set to true to see intermediate outputs for debugging purposes
+DEBUG = False # Set to true to see intermediate outputs for debugging purposes
 #----------------------------Evaluation Functions -----------------------------#
 def evaluate_program(ast, sig=None, l={}):
     """
@@ -159,15 +159,19 @@ def evaluate_program(ast, sig=None, l={}):
     if not ast:
         return [False, sig]
 
+    if DEBUG:
+        print('Current AST: ', ast)
+
     if len(ast) == 1:
         ast = ast[0]
-        # import pdb; pdb.set_trace()
+        #import pdb; pdb.set_trace()
         if DEBUG:
             print('Current program: ', ast)
         try:
             root, *tail = ast
             if DEBUG:
                 print('Current OP: ', root)
+                print('Current TAIL: ', tail)
             # Basic primitives
             if root in basic_ops.keys():
                 op_func = basic_ops[root]
@@ -202,8 +206,9 @@ def evaluate_program(ast, sig=None, l={}):
                     return [op_func(get_data_struct, e2), sig]
                 else:
                     # ['First'/'last', ['vector', 2, 3, 4, 5]]
+                    e1 = tail
                     if isinstance(e1, list):
-                        get_data_struct, _ = evaluate_program([e1], sig, l=l)
+                        get_data_struct, _ = evaluate_program(e1, sig, l=l)
                     else:
                         # Most likely a pre-defined varibale in l
                         get_data_struct = l[e1]
@@ -230,8 +235,12 @@ def evaluate_program(ast, sig=None, l={}):
                 # If torch tensors convert to python data struct for comparison
                 if torch.is_tensor(a):
                     a = a.tolist()
+                    if isinstance(a, list):
+                        a = a[0]
                 if torch.is_tensor(b):
                     b = b.tolist()
+                    if isinstance(b, list):
+                        b = b[0]
                 if DEBUG:
                     print('Eval Conditional param-1: ', a)
                     print('Eval Conditional param-2: ', b)
@@ -298,8 +307,18 @@ def evaluate_program(ast, sig=None, l={}):
             elif root in dist_ops.keys():
                 op_func = dist_ops[root]
                 if len(tail) == 2:
-                    para1 = evaluate_program([tail[0]], sig, l=l)[0]
-                    para2 = evaluate_program([tail[1]], sig, l=l)[0]
+                    # Check for single referenced string
+                    if isinstance(tail[0], str):
+                        param1 = [tail[0]]
+                    else:
+                        param1 = tail[0]
+                    if isinstance(tail[1], str):
+                        param2 = [tail[1]]
+                    else:
+                        param2 = tail[1]
+                    # Eval params
+                    para1 = evaluate_program([param1], sig, l=l)[0]
+                    para2 = evaluate_program([param2], sig, l=l)[0]
                     # Make sure to have it in torch tensor
                     para1 = _totensor(x=para1)
                     para2 = _totensor(x=para2)
@@ -322,7 +341,7 @@ def evaluate_program(ast, sig=None, l={}):
                 sampler = evaluate_program(tail, sig, l=l)[0]
                 if DEBUG:
                     print('Sampler: ', sampler)
-                return sampler.sample()
+                return [sampler.sample(), sig]
             else:
                 # Most likely a single element list
                 if DEBUG:
@@ -341,7 +360,8 @@ def evaluate_program(ast, sig=None, l={}):
                         else:
                             for k in range(len(tail)):
                                 fnparams_[fnparams[k]] = evaluate_program([tail[k]], sig, l=l)[0]
-                        print('Function Params :', fnparams_)
+                        if DEBUG:
+                            print('Function Params :', fnparams_)
                         # Replace fnbody params with values
                         for k in range(len(fnbody)):
                             if fnbody[k] in fnparams_.keys():
@@ -402,12 +422,17 @@ def evaluate_program(ast, sig=None, l={}):
                         outputs.extend([cisigma])
             except:
                 raise AssertionError('Unsupported!')
-
+        # Remove any None
         outputs_ = [output for output in outputs if output is not None]
         if len(outputs_) == 1:
-            outputs_ = outputs_[0]
+            return_outputs_ = outputs_[0]
+        else:
+            return_outputs_ = []
+            return_outputs_.extend(outputs_)
+        if DEBUG:
+            print('Final output: ', return_outputs_)
 
-        return [outputs_, sig]
+        return [return_outputs_, sig]
 
     return [None, sig]
 
@@ -433,12 +458,13 @@ def run_deterministic_tests():
         ast_path = f'./jsons/tests/deterministic/test_{i}.json'
         with open(ast_path) as json_file:
             ast = json.load(json_file)
-        # print(ast)
+        #print(ast)
 
         ret, sig = evaluate_program(ast)
-
+        #print(ret)
         print('Running evaluation-based-sampling for deterministic test number {}:'.format(str(i)))
         truth = load_truth('./programs/tests/deterministic/test_{}.truth'.format(i))
+        #print(truth)
         try:
             assert(is_tol(ret, truth))
         except AssertionError:
@@ -456,8 +482,8 @@ def run_probabilistic_tests():
     #num_samples=10
     max_p_value =1e-4
 
-    # for i in range(1,7):
-    for i in range(6,7):
+    for i in range(1,7):
+    #for i in range(5,6):
         # Note: this path should be with respect to the daphne path!
         # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/tests/probabilistic/test_{i}.daphne'])
         # ast_path = f'./jsons/tests/probabilistic/test_{i}.json'
@@ -467,42 +493,39 @@ def run_probabilistic_tests():
         ast_path = f'./jsons/tests/probabilistic/test_{i}.json'
         with open(ast_path) as json_file:
             ast = json.load(json_file)
-        print(ast)
-
-        eval = evaluate_program(ast)
-        print(eval)
+        # print(ast)
 
         stream = get_stream(ast)
 
-        # print(stream)
-        #
         # samples = []
         # for k in range(4):
-        #     # print(next(stream))
         #     samples.append(next(stream))
         # print(samples)
 
         print('Running evaluation-based-sampling for probabilistic test number {}:'.format(str(i)))
-        #truth = load_truth('./programs/tests/probabilistic/test_{}.truth'.format(i))
-        #p_val = run_prob_test(stream, truth, num_samples)
 
-        #assert(p_val > max_p_value)
+        truth = load_truth('./programs/tests/probabilistic/test_{}.truth'.format(i))
+        p_val = run_prob_test(stream, truth, num_samples)
+
+        # Empty globals funcs
+        rho = {}
+
+        assert(p_val > max_p_value)
 
     print('All probabilistic tests passed')
 
 
 if __name__ == '__main__':
     daphne_path = '/Users/tony/Documents/prog-prob/CS539-HW-2'
-    #run_deterministic_tests()
+    run_deterministic_tests()
 
-    # run_probabilistic_tests()
+    run_probabilistic_tests()
+
+    # for i in range(1,5):
+    #     ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
+    #     ast_path = f'./jsons/tests/final/{i}.json'
+    #     with open(ast_path, 'w') as fout:
+    #         json.dump(ast, fout, indent=2)
+    #     print('\n\n\nSample of prior of program {}:'.format(i))
     #
-
-    for i in range(1,5):
-        ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
-        ast_path = f'./jsons/tests/final/{i}.json'
-        with open(ast_path, 'w') as fout:
-            json.dump(ast, fout, indent=2)
-        print('\n\n\nSample of prior of program {}:'.format(i))
-        
         # print(evaluate_program(ast)[0])
