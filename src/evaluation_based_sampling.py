@@ -167,7 +167,7 @@ cond_ops={"<":  lambda a, b: a < b,
 
 # Global vars
 rho = {}
-DEBUG = True # Set to true to see intermediate outputs for debugging purposes
+DEBUG = False # Set to true to see intermediate outputs for debugging purposes
 #----------------------------Evaluation Functions -----------------------------#
 def evaluate_program(ast, sig=None, l={}):
     """
@@ -215,19 +215,24 @@ def evaluate_program(ast, sig=None, l={}):
                 op_func = math_ops[root]
                 return [op_func(tail), sig]
             # Data structures-- list and hash-map
-            elif root in data_struct_ops.keys():
+            elif root == "vector":
+                # import pdb; pdb.set_trace()
                 op_func = data_struct_ops[root]
                 if DEBUG:
                     print('Data Structure data: ', tail)
                 # Eval tails:
-                tail_data = []
+                tail_data = torch.zeros(0, dtype=torch.float32)
                 for T in range(len(tail)):
                     # Check for single referenced string
                     if isinstance(tail[T], str):
                         VT = [tail[T]]
                     else:
                         VT = tail[T]
+                    if DEBUG:
+                        print('Pre-Evaluated Data Structure data: ', VT)
                     eval_T = evaluate_program([VT], sig, l=l)
+                    if DEBUG:
+                        print('Evaluated Data Structure data: ', eval_T)
                     try:
                         eval_T = eval_T[0]
                     except:
@@ -238,10 +243,26 @@ def evaluate_program(ast, sig=None, l={}):
                         eval_T = eval_T.sample()
                     except:
                         pass
-                    tail_data.extend([eval_T])
+                    # Check if not torch tensor
+                    if not torch.is_tensor(eval_T):
+                        if isinstance(eval_T, list):
+                            eval_T = torch.tensor(eval_T, dtype=torch.float32)
+                        else:
+                            eval_T = torch.tensor([eval_T], dtype=torch.float32)
+                    # Check for 0 dimensional tensor
+                    elif eval_T.shape == torch.Size([]):
+                        eval_T = torch.tensor([eval_T.item()], dtype=torch.float32)
+                    try:
+                        tail_data = torch.cat((tail_data, eval_T))
+                    except:
+                        raise AssertionError('Cannot append the torch tensors')
                 if DEBUG:
                     print('Eval Data Structure data: ', tail_data)
-                return [op_func(tail_data), sig]
+                return [tail_data, sig]
+            # Data structures-- list and hash-map
+            elif root == "hash-map":
+                op_func = data_struct_ops[root]
+                return [op_func(tail), sig]
             # Data structures interaction
             elif root in data_interact_ops.keys():
                 op_func = data_interact_ops[root]
@@ -713,8 +734,8 @@ if __name__ == '__main__':
 
     #run_probabilistic_tests()
 
-    for i in range(4,5):
-    # for i in range(1,5):
+    #for i in range(4,5):
+    for i in range(1,5):
         # Note: this path should be with respect to the daphne path!
         # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
         # ast_path = f'./jsons/tests/final/{i}.json'
@@ -725,9 +746,11 @@ if __name__ == '__main__':
         ast_path = f'./jsons/tests/final/{i}.json'
         with open(ast_path) as json_file:
             ast = json.load(json_file)
-        print(ast)
+        #print(ast)
 
-        print(evaluate_program(ast))
+        ret, sig = evaluate_program(ast)
+
+        print(ret)
 
         # Empty globals funcs
         rho = {}
