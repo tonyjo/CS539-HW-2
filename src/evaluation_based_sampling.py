@@ -1,3 +1,4 @@
+import os
 import json
 import torch
 import torch.distributions as distributions
@@ -131,7 +132,6 @@ def _totensor(x, dtype=torch.float32):
             x = torch.tensor([x], dtype=dtype)
     return x
 
-
 # OPS
 basic_ops = {'+':torch.add,
              '-':torch.sub,
@@ -169,6 +169,7 @@ cond_ops={"<":  lambda a, b: a < b,
 }
 
 # Global vars
+global rho;
 rho = {}
 DEBUG = False # Set to true to see intermediate outputs for debugging purposes
 #----------------------------Evaluation Functions -----------------------------#
@@ -183,9 +184,12 @@ def evaluate_program(ast, sig=None, l={}):
     if not ast:
         return [False, sig]
 
+    # print('local vars: ---> ', l)
+    # print('Global vars: ---> ', rho)
     if DEBUG:
         print('Current AST: ', ast)
 
+    # import pdb; pdb.set_trace()
     if len(ast) == 1:
         # Check if a single string ast ['mu']
         single_val = False
