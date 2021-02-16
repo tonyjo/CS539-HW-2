@@ -745,6 +745,7 @@ def run_probabilistic_tests():
         rho = {}
 
         assert(p_val > max_p_value)
+        print('Test passed')
 
     print('All probabilistic tests passed')
 

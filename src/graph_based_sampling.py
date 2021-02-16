@@ -1,9 +1,10 @@
+import json
 import torch
 import torch.distributions as dist
 
 from daphne import daphne
 
-from primitives import funcprimitives #TODO
+#from primitives import funcprimitives #TODO
 from tests import is_tol, run_prob_test,load_truth
 
 # Put all function mappings from the deterministic language environment to your
@@ -32,6 +33,21 @@ def sample_from_joint(graph):
     This function does ancestral sampling starting from the prior.
     """
     # TODO insert your code here
+    D, G, E = graph
+
+    if bool(D) == False:
+        V = G['V']
+        A = G['A']
+        P = G['P']
+        Y = G['Y']
+
+        # Check for empty graph
+        if not V:
+            return E
+    else:
+        for i in range(D.keys()):
+            pass
+
     return torch.tensor([0.0, 0.0, 0.0])
 
 
@@ -50,11 +66,24 @@ def get_stream(graph):
 
 #Testing:
 def run_deterministic_tests():
-    for i in range(1,13):
-        #note: this path should be with respect to the daphne path!
-        graph = daphne(['graph','-i','../CS532-HW2/programs/tests/deterministic/test_{}.daphne'.format(i)])
-        truth = load_truth('programs/tests/deterministic/test_{}.truth'.format(i))
+    #for i in range(1,13):
+    for i in range(1,2):
+        # Note: this path should be with respect to the daphne path!
+        # ast = daphne(['graph', '-i', f'{daphne_path}/src/programs/tests/deterministic/test_{i}.daphne'])
+        # ast_path = f'./jsons/graphs/deterministic/test_{i}.json'
+        # with open(ast_path, 'w') as fout:
+        #     json.dump(ast, fout, indent=2)
+
+        ast_path = f'./jsons/graphs/deterministic/test_{i}.json'
+        with open(ast_path) as json_file:
+            graph = json.load(json_file)
+        print(graph)
+
         ret = deterministic_eval(graph[-1])
+
+        print('Running evaluation-based-sampling for deterministic test number {}:'.format(str(i)))
+        truth = load_truth('./programs/tests/deterministic/test_{}.truth'.format(i))
+        print(truth)
         try:
             assert(is_tol(ret, truth))
         except AssertionError:
@@ -72,23 +101,27 @@ def run_probabilistic_tests():
     max_p_value = 1e-4
 
     for i in range(1,7):
-        #note: this path should be with respect to the daphne path!
-        graph = daphne(['graph', '-i', '../CS532-HW2/programs/tests/probabilistic/test_{}.daphne'.format(i)])
-        truth = load_truth('programs/tests/probabilistic/test_{}.truth'.format(i))
+        # Note: this path should be with respect to the daphne path!
+        ast = daphne(['graph', '-i', f'{daphne_path}/src/programs/tests/probabilistic/test_{i}.daphne'])
+        ast_path = f'./jsons/graphs/probabilistic/test_{i}.json'
+        with open(ast_path, 'w') as fout:
+            json.dump(ast, fout, indent=2)
 
-        stream = get_stream(graph)
-
-        p_val = run_prob_test(stream, truth, num_samples)
-
-        print('p value', p_val)
-        assert(p_val > max_p_value)
+        # stream = get_stream(graph)
+        #
+        # p_val = run_prob_test(stream, truth, num_samples)
+        #
+        # print('p value', p_val)
+        # assert(p_val > max_p_value)
 
     print('All probabilistic tests passed')
 
 
 if __name__ == '__main__':
+    daphne_path = '/Users/tony/Documents/prog-prob/CS539-HW-2'
+
     run_deterministic_tests()
-    # run_probabilistic_tests()
+    #run_probabilistic_tests()
     #
     #
     #
