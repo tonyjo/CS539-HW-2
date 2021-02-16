@@ -101,7 +101,10 @@ def _append(x, value):
         raise AssertionError('Unsupported data structure')
 
 def _get(x, idx):
-    if isinstance(x, list):
+    if isinstance(x, dict):
+        # Don't change the hash-key
+        return x[idx]
+    elif isinstance(x, list):
         if isinstance(idx, float):
             idx = int(idx)
         return x[idx]
@@ -210,7 +213,14 @@ def evaluate_program(ast, sig=None, l={}):
             # Basic primitives
             if root in basic_ops.keys():
                 op_func = basic_ops[root]
-                return [op_func(float(tail[0]), evaluate_program(tail[1:], sig, l=l)[0]), sig]
+                eval_1 = evaluate_program([tail[0]], sig, l=l)[0]
+                if torch.is_tensor(eval_1):
+                    eval_1 = eval_1.type(torch.float32)
+                elif isinstance(eval_1, int):
+                    eval_1 = float(eval_1)
+                if DEBUG:
+                    print('Basic OP eval: ', eval_1)
+                return [op_func(eval_1, evaluate_program(tail[1:], sig, l=l)[0]), sig]
             if root in math_ops.keys():
                 op_func = math_ops[root]
                 return [op_func(tail), sig]
@@ -277,12 +287,16 @@ def evaluate_program(ast, sig=None, l={}):
                     # Get index
                     if isinstance(e2, list):
                         e2_idx, _ = evaluate_program([e2], sig, l=l)
+                    elif isinstance(e2, float) or isinstance(e2, int):
+                        e2_idx = e2
                     else:
                         # Most likely a pre-defined varibale in l
                         e2_idx = l[e2]
                     # Get Value
                     if isinstance(e3, list):
                         e3_val, _ = evaluate_program([e3], sig, l=l)
+                    elif isinstance(e3, float) or isinstance(e3, int):
+                        e3_val = e3
                     else:
                         # Most likely a pre-defined varibale in l
                         e3_val = l[e3]
@@ -293,7 +307,7 @@ def evaluate_program(ast, sig=None, l={}):
                     return [op_func(get_data_struct, e2_idx, e3_val), sig]
                 elif root == 'remove' or root == 'get':
                     # ['remove'/'get', ['vector', 2, 3, 4, 5], 2]
-                    #import pdb; pdb.set_trace()
+                    # import pdb; pdb.set_trace()
                     e1, e2 = tail
                     if isinstance(e1, list):
                         get_data_struct, _ = evaluate_program([e1], sig, l=l)
@@ -302,8 +316,10 @@ def evaluate_program(ast, sig=None, l={}):
                         get_data_struct = l[e1]
                     if isinstance(e2, list):
                         e2_idx, _ = evaluate_program([e2], sig, l=l)
+                    elif isinstance(e2, float) or isinstance(e2, int):
+                        e2_idx = e2
                     else:
-                        # Most likely a pre-defined varibale in l
+                        # Otherwise Most likely a pre-defined varibale in l
                         e2_idx = l[e2]
                     if DEBUG:
                         print('Data : ', get_data_struct)
@@ -318,6 +334,8 @@ def evaluate_program(ast, sig=None, l={}):
                             print('Op Pre-Eval: ', each_var)
                         if isinstance(each_var, list):
                             get_data_eval, _ = evaluate_program([each_var], sig, l=l)
+                        elif isinstance(each_var, float) or isinstance(each_var, int):
+                            get_data_eval = each_var
                         else:
                             # Most likely a pre-defined varibale in l
                             get_data_eval = l[each_var]
@@ -547,6 +565,7 @@ def evaluate_program(ast, sig=None, l={}):
                         return [l[root], sig]
                     # Check in Functions vars
                     elif root in rho.keys():
+                        # import pdb; pdb.set_trace()
                         fnparams_ = {}
                         fnparams, fnbody =rho[root]
                         if len(tail) != len(fnparams):
@@ -575,6 +594,7 @@ def evaluate_program(ast, sig=None, l={}):
                             return [l[ast], sig]
                         # Check in Functions vars
                         elif ast in rho.keys():
+                            # import pdb; pdb.set_trace()
                             fnparams_ = {}
                             fnparams, fnbody =rho[ast]
                             if len(tail) != len(fnparams):
@@ -598,6 +618,7 @@ def evaluate_program(ast, sig=None, l={}):
                             return [l[root], sig]
                         # Check in Functions vars
                         elif root in rho.keys():
+                            # import pdb; pdb.set_trace()
                             fnparams_ = {}
                             fnparams, fnbody =rho[root]
                             if len(tail) != len(fnparams):
@@ -674,7 +695,7 @@ def run_deterministic_tests():
         #print(ast)
 
         ret, sig = evaluate_program(ast)
-        #print(ret)
+        print(ret)
         print('Running evaluation-based-sampling for deterministic test number {}:'.format(str(i)))
         truth = load_truth('./programs/tests/deterministic/test_{}.truth'.format(i))
         #print(truth)
@@ -696,7 +717,7 @@ def run_probabilistic_tests():
     max_p_value =1e-4
 
     for i in range(1,7):
-    #for i in range(5,6):
+    #for i in range(6,7):
         # Note: this path should be with respect to the daphne path!
         # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/tests/probabilistic/test_{i}.daphne'])
         # ast_path = f'./jsons/tests/probabilistic/test_{i}.json'
@@ -711,7 +732,7 @@ def run_probabilistic_tests():
         stream = get_stream(ast)
 
         # samples = []
-        # for k in range(4):
+        # for k in range(1):
         #     samples.append(next(stream))
         # print(samples)
 
@@ -730,9 +751,12 @@ def run_probabilistic_tests():
 
 if __name__ == '__main__':
     daphne_path = '/Users/tony/Documents/prog-prob/CS539-HW-2'
-    #run_deterministic_tests()
 
-    #run_probabilistic_tests()
+    # Deterministic Test
+    run_deterministic_tests()
+
+    # Probabilistic Test
+    run_probabilistic_tests()
 
     #for i in range(4,5):
     for i in range(1,5):
@@ -747,7 +771,6 @@ if __name__ == '__main__':
         with open(ast_path) as json_file:
             ast = json.load(json_file)
         #print(ast)
-
         ret, sig = evaluate_program(ast)
 
         print(ret)
