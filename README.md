@@ -20,17 +20,12 @@ pip3 install -r requirements.txt
 ```
 
 ## Usage
-1. Change the working path in `evaluation_based_sampling.py`
+1. Change the daphne path in `evaluation_based_sampling.py` and run:
 ```bash
 python3 evaluation_based_sampling.py
 ```
 
-2. Change the working path in `graph_based_sampling.py`
-```bash
-python3 evaluation_based_sampling.py
-```
-
-3. (Optional) Change the working path in to run `daphne.py`
+2. Change the daphne path in `graph_based_sampling.py` and run:
 ```bash
 python3 evaluation_based_sampling.py
 ```
