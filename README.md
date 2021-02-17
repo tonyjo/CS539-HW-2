@@ -30,7 +30,7 @@ python3 evaluation_based_sampling.py
 python3 evaluation_based_sampling.py
 ```
 
-(Optional) 3. Change the working path in to run `daphne.py`
+3. (Optional) Change the working path in to run `daphne.py`
 ```bash
 python3 evaluation_based_sampling.py
 ```
