@@ -2,11 +2,11 @@ import torch
 
 
 def _totensor(x, dtype=torch.float32):
-    # if not torch.is_tensor(x):
-    #     if isinstance(x, list):
-    #         x = torch.tensor(x, dtype=dtype)
-    #     else:
-    #         x = torch.tensor([x], dtype=dtype)
+    if not torch.is_tensor(x):
+        if isinstance(x, list):
+            x = torch.tensor(x, dtype=dtype)
+        else:
+            x = torch.tensor([x], dtype=dtype)
     return x
 
 def _squareroot(x):

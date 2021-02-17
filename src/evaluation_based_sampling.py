@@ -184,8 +184,6 @@ def evaluate_program(ast, sig=None, l={}):
     if not ast:
         return [False, sig]
 
-    # print('local vars: ---> ', l)
-    # print('Global vars: ---> ', rho)
     if DEBUG:
         print('Current AST: ', ast)
 
@@ -696,22 +694,21 @@ def run_deterministic_tests():
         ast_path = f'./jsons/tests/deterministic/test_{i}.json'
         with open(ast_path) as json_file:
             ast = json.load(json_file)
-        #print(ast)
+        # print(ast)
 
         ret, sig = evaluate_program(ast)
-        print(ret)
         print('Running evaluation-based-sampling for deterministic test number {}:'.format(str(i)))
         truth = load_truth('./programs/tests/deterministic/test_{}.truth'.format(i))
-        #print(truth)
+        print("Evaluation Output: ", ret)
+        print("Ground Truth: ", truth)
         try:
             assert(is_tol(ret, truth))
         except AssertionError:
             raise AssertionError('return value {} is not equal to truth {} for exp {}'.format(ret,truth,ast))
 
-        print('Test passed')
+        print('Test passed \n')
 
-    print('All deterministic tests passed')
-
+    print('All deterministic tests passed.')
 
 
 def run_probabilistic_tests():
@@ -749,36 +746,37 @@ def run_probabilistic_tests():
         rho = {}
 
         assert(p_val > max_p_value)
-        print('Test passed')
+        print('P-Value: ', p_val)
+        print('Test passed \n')
 
-    print('All probabilistic tests passed')
+    print('All probabilistic tests passed.')
 
 
 if __name__ == '__main__':
     daphne_path = '/Users/tony/Documents/prog-prob/CS539-HW-2'
 
     # Deterministic Test
-    run_deterministic_tests()
+    # run_deterministic_tests()
 
     # Probabilistic Test
-    run_probabilistic_tests()
+    # run_probabilistic_tests()
 
     #for i in range(4,5):
-    for i in range(1,5):
-        # Note: this path should be with respect to the daphne path!
-        # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
-        # ast_path = f'./jsons/tests/final/{i}.json'
-        # with open(ast_path, 'w') as fout:
-        #     json.dump(ast, fout, indent=2)
-        # print('\n\n\nSample of prior of program {}:'.format(i))
-
-        ast_path = f'./jsons/tests/final/{i}.json'
-        with open(ast_path) as json_file:
-            ast = json.load(json_file)
-        #print(ast)
-        ret, sig = evaluate_program(ast)
-
-        print(ret)
-
-        # Empty globals funcs
-        rho = {}
+    # for i in range(1,5):
+    #     # Note: this path should be with respect to the daphne path!
+    #     # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
+    #     # ast_path = f'./jsons/tests/final/{i}.json'
+    #     # with open(ast_path, 'w') as fout:
+    #     #     json.dump(ast, fout, indent=2)
+    #     # print('\n\n\nSample of prior of program {}:'.format(i))
+    #
+    #     ast_path = f'./jsons/tests/final/{i}.json'
+    #     with open(ast_path) as json_file:
+    #         ast = json.load(json_file)
+    #     #print(ast)
+    #     ret, sig = evaluate_program(ast)
+    #
+    #     print(ret)
+    #
+    #     # Empty globals funcs
+    #     rho = {}

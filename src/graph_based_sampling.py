@@ -1,6 +1,5 @@
 import json
 import torch
-from collections import deque
 import torch.distributions as dist
 
 from daphne import daphne
@@ -18,7 +17,7 @@ env = {'normal': dist.Normal,
 # OPS
 all_ops = {
  'sqrt': lambda x: _squareroot(x),
- 'vector': lambda x: _totensor(x),
+ 'vector': lambda x: x, # implemented as vectors
  'hash-map': lambda x: _hashmap(x),
  'first':lambda x: x[0],      # retrieves the first element of a list or vector e
  'last':lambda x: x[-1],      # retrieves the last element of a list or vector e
@@ -44,6 +43,83 @@ def deterministic_eval(exp):
 global rho
 rho = {}
 DEBUG = False # Set to true to see intermediate outputs for debugging purposes
+
+def traverse_and_eval(G, node, output, visit={}, P={}, l={}):
+    """
+    Traverse and Evaluate a single expression eval
+    """
+    visit[node] = True
+    neighbors = G[node]
+    if DEBUG:
+        print('Node: ', node)
+        print('visit: ', visit)
+        print('Neigbors: ', neighbors)
+        print('local_vars: ', l)
+        print('===============')
+
+    for n in neighbors:
+        if DEBUG:
+            print('Neighbor: ', n)
+        if (neighbors[n] == -1) and (n not in visit):
+            output_, l = traverse_and_eval(G, node=n, output=output, visit=visit, P=P, l=l)
+
+        elif (neighbors[n] == 1) and (n in visit):
+            # Evaluate node
+            p = P[n] # [sample* [n, 5, [sqrt, 5]]]
+            if DEBUG:
+                print('PMF for Node: ', p)
+            root = p[0]
+            tail = p[1]
+            if DEBUG:
+                print('Empty sample Root: ', root)
+                print('Empty sample Root: ', tail)
+            if root == "sample*":
+                if None not in tail:
+                    sample_eval = ["sample", tail]
+                    if DEBUG:
+                        print('Sample AST: ', sample_eval)
+                    output_ = evaluate_program(ast=[sample_eval], sig=None, l=l)[0]
+                    if DEBUG:
+                        print('Evaluated sample: ', output_)
+                else:
+                    output_ = torch.tensor([0.00001])
+            if DEBUG:
+                print('Node eval sample output: ', output_)
+            # Check if not torch tensor
+            if not torch.is_tensor(output_):
+                if isinstance(output_, list):
+                    output_ = torch.tensor(output_, dtype=torch.float32)
+                else:
+                    output_ = torch.tensor([output_], dtype=torch.float32)
+            # Add to local var
+            l[n] = output_
+
+            return output_, l
+
+        elif (neighbors[n] == 1) and (n not in visit):
+            raise AssertionError('Something wrong')
+
+        else:
+            if DEBUG:
+                print('Did not find: ', n)
+            raise AssertionError('Something wrong')
+
+        # Check if not torch tensor
+        if not torch.is_tensor(output_):
+            if isinstance(output_, list):
+                output_ = torch.tensor(output_, dtype=torch.float32)
+            else:
+                output_ = torch.tensor([output_], dtype=torch.float32)
+        # Check for 0 dimensional tensor
+        elif output_.shape == torch.Size([]):
+            output_ = torch.tensor([output_.item()], dtype=torch.float32)
+        try:
+            output = torch.cat((output, output_))
+        except:
+            raise AssertionError('Cannot append the torch tensors')
+
+    return output, l
+
 
 def make_link(G, node1, node2):
     """
@@ -71,6 +147,7 @@ def eval_path(path, l={}, Y={}, P={}):
         # Evaluate node
         if DEBUG:
             print('Node: ', n)
+
         if n in l.keys():
             output_ = l[n]
             outputs.append([output_])
@@ -193,8 +270,9 @@ def sample_from_joint(graph):
                                 if DEBUG:
                                     print('Evaluated sample: ', sample)
                             else:
-                                sample_eval = ["sample", tail]
-                                sample = torch.tensor([0.00001])
+                                if DEBUG:
+                                    print('None value found')
+                                sample = torch.distributions.normal.Normal(loc=torch.tensor([0.0]), scale=torch.tensor([1.0])).sample()
                             # Check if not torch tensor
                             if not torch.is_tensor(sample):
                                 if isinstance(sample, list):
@@ -208,6 +286,8 @@ def sample_from_joint(graph):
                                 output = torch.cat((output, sample))
                             except:
                                 raise AssertionError('Cannot append the torch tensors')
+
+                return output
 
             # If connected V
             else:
@@ -231,21 +311,17 @@ def sample_from_joint(graph):
                 # import pdb; pdb.set_trace()
                 # Eval based on E
                 if isinstance(E, str):
-                    # output = torch.zeros(0, dtype=torch.float32)
-                    path = []
-                    path = traverse(G=G_, node=E, visit={}, path=path)
+                    output = torch.zeros(0, dtype=torch.float32)
+                    output, _ = traverse_and_eval(G=G_, node=E, output=output, visit={}, P=P, l={})
                     if DEBUG:
-                        print('Evaluated graph output: ', path)
-                    # List Reverse
-                    path.reverse()
-                    if DEBUG:
-                        print('Evaluated reverse graph path: ', path)
+                        print('Evaluated graph output: ', output)
 
-                    output, l = eval_path(path, l={}, Y=Y, P=P)
+                    return output
 
                 elif isinstance(E, list):
                     global final_output;
                     final_output = torch.zeros(0, dtype=torch.float32)
+                    #output=[]
 
                     def _cat(eval_output):
                         if eval_output == [] or eval_output == None:
@@ -265,7 +341,6 @@ def sample_from_joint(graph):
                             except:
                                 raise AssertionError('Cannot append the torch tensors')
 
-                    #output=[]
                     def eval_each_exp(E, l={}):
                         #import pdb; pdb.set_trace()
                         if E == []:
@@ -305,7 +380,7 @@ def sample_from_joint(graph):
                             # List Reverse
                             path.reverse()
                             if DEBUG:
-                                print('Evaluated reverse graph path: ', path)
+                                print('>>> Evaluated reverse graph path: ', path)
                             # Evaluate
                             eval_output, l = eval_path(path, l=l, Y=Y, P=P)
                             if DEBUG:
@@ -314,17 +389,16 @@ def sample_from_joint(graph):
                             if eval_output == [] or eval_output == None:
                                 pass
                             else:
-                                #print('calling')
-                                #print(eval_output)
                                 _cat(eval_output=eval_output)
-                                #output.extend([eval_output])
+                                # output.extend([eval_output])
                             return
 
                         else:
                             # Evaluate root
                             path = []
                             path = traverse(G=G_, node=root, visit={}, path=path)
-                            print('>>> Evaluated graph output: ', path)
+                            if DEBUG:
+                                print('>>> Evaluated graph output: ', path)
                             # List Reverse
                             path.reverse()
                             if DEBUG:
@@ -334,60 +408,27 @@ def sample_from_joint(graph):
                             if DEBUG:
                                 print('Evaluated sample path output: ', eval_output)
 
-                            print(eval_output)
-
                             if eval_output == [] or eval_output == None:
                                 pass
                             else:
                                 _cat(eval_output=eval_output)
-                                #output.extend([eval_output])
+                                # output.extend([eval_output])
 
-                            # Recurse
+                            # Recursively evaluate tail
                             eval_each_exp(tail, l=l)
-                            # print(path_r)
-                            # # # Evaluate
-                            # # eval_output = eval_path(path_r, l={}, Y=Y, P=P)
-                            # if DEBUG:
-                            #     print('Evaluated sample path output: ', path_r)
-                            #
-                            # if path_r == [] or path_r == None:
-                            #     pass
-                            # else:
-                            #     _cat(eval_output=path_r)
-                            #     # output.extend([path_r])
 
                             return
 
                     eval_each_exp(E=E, l={})
                     # print(output)
-                    print(final_output)
-
-                    # outputs = []
-                    # for exp in range(len(E)):
-                    #     print(E[exp])
-                    #     if isinstance(E[exp], string):
-                    #         root = E[exp]
-                    #         if root in all_ops.keys():
-                    #             op_func = all_ops[root]
-                    #             output_ = op_func(eval_each_exp(tail, output=output))
-                    #             return output
-                    #     #output = eval_each_exp(E=E[exp], output=[], l={})
-                    #     #outputs.append(output)
-                    #     print(E[exp])
-                    # print(outputs)
-
-
-                        #eval_each_exp()
-
-                    #output = eval_each_exp(E=E, output=output)
-
-                    # List Reverse
                     if DEBUG:
-                        print('Evaluated sample graph path: ', output)
+                        print('Final output: ', final_output)
+
+                    return globals()['final_output']
+
                 else:
                     raise AssertionError('Invalid input of E!')
 
-            return output
     else:
         # Pass through function defs, save to rho and procede with empty D
         for d in D.keys():
@@ -427,12 +468,10 @@ def get_stream(graph):
         yield sample_from_joint(graph)
 
 
-
-
-#Testing:
+#------------------------------Test Functions --------------------------------#
 def run_deterministic_tests():
     for i in range(1,13):
-    #for i in range(2,3):
+    #for i in range(2,3): # For debugging purposes
         # Note: this path should be with respect to the daphne path!
         # ast = daphne(['graph', '-i', f'{daphne_path}/src/programs/tests/deterministic/test_{i}.daphne'])
         # ast_path = f'./jsons/graphs/deterministic/test_{i}.json'
@@ -442,22 +481,22 @@ def run_deterministic_tests():
         ast_path = f'./jsons/graphs/deterministic/test_{i}.json'
         with open(ast_path) as json_file:
             graph = json.load(json_file)
-        print(graph)
+        # print(graph)
 
         ret = sample_from_joint(graph)
-        #ret = deterministic_eval(graph[-1])
-        print(ret)
-        print('Running evaluation-based-sampling for deterministic test number {}:'.format(str(i)))
+
+        print('Running graph-based-sampling for deterministic test number {}:'.format(str(i)))
         truth = load_truth('./programs/tests/deterministic/test_{}.truth'.format(i))
+        print("Graph Evaluation Output: ", ret)
+        print("Ground Truth: ", truth)
         try:
             assert(is_tol(ret, truth))
         except AssertionError:
             raise AssertionError('return value {} is not equal to truth {} for graph {}'.format(ret,truth,graph))
 
-        print('Test passed')
+        print('Test passed \n')
 
-    print('All deterministic tests passed')
-
+    print('All deterministic tests passed.')
 
 
 def run_probabilistic_tests():
@@ -476,27 +515,32 @@ def run_probabilistic_tests():
         ast_path = f'./jsons/graphs/probabilistic/test_{i}.json'
         with open(ast_path) as json_file:
             graph = json.load(json_file)
-        print(graph)
+        # print(graph)
 
         stream = get_stream(graph)
 
-        samples = []
-        for k in range(1):
-            samples.append(next(stream))
-        print(samples)
+        # samples = []
+        # for k in range(1):
+        #     samples.append(next(stream))
+        # print(samples)
 
-        if i != 4:
-            print('Running evaluation-based-sampling for probabilistic test number {}:'.format(str(i)))
-            truth = load_truth('./programs/tests/probabilistic/test_{}.truth'.format(i))
-            print(truth)
-            p_val = run_prob_test(stream, truth, num_samples)
+        # if i != 4:
+        print('Running graph-based-sampling for probabilistic test number {}:'.format(str(i)))
+        truth = load_truth('./programs/tests/probabilistic/test_{}.truth'.format(i))
+        # print(truth)
+        p_val = run_prob_test(stream, truth, num_samples)
 
-            print('p value', p_val)
+        print('p value', p_val)
+
+        try:
             assert(p_val > max_p_value)
+        except AssertionError:
+            print('Test Failed\n')
+            continue
 
-            print('Test passed')
+        print('Test passed\n')
 
-    print('All probabilistic tests passed')
+    print('All probabilistic tests passed.')
 
 
 if __name__ == '__main__':
@@ -507,24 +551,24 @@ if __name__ == '__main__':
     # run_probabilistic_tests()
 
     #for i in range(1,5):
-    for i in range(1,5):
-        # Note: this path should be with respect to the daphne path!
-        # ast = daphne(['graph', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
-        # ast_path = f'./jsons/graphs/final/{i}.json'
-        # with open(ast_path, 'w') as fout:
-        #     json.dump(ast, fout, indent=2)
-        # print('\n\n\nSample of prior of program {}:'.format(i))
-
-        ast_path = f'./jsons/graphs/final/{i}.json'
-        with open(ast_path) as json_file:
-            graph = json.load(json_file)
-        print(graph)
-
-        output = sample_from_joint(graph)
-        print(output)
-
-        #stream = get_stream(graph)
-        # samples = []
-        # for k in range(1):
-        #     samples.append(next(stream))
-        # print(samples)
+    # for i in range(4,5):
+    #     ## Note: this path should be with respect to the daphne path!
+    #     # ast = daphne(['graph', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
+    #     # ast_path = f'./jsons/graphs/final/{i}.json'
+    #     # with open(ast_path, 'w') as fout:
+    #     #     json.dump(ast, fout, indent=2)
+    #     # print('\n\n\nSample of prior of program {}:'.format(i))
+    #
+    #     ast_path = f'./jsons/graphs/final/{i}.json'
+    #     with open(ast_path) as json_file:
+    #         graph = json.load(json_file)
+    #     # print(graph)
+    #
+    #     output = sample_from_joint(graph)
+    #     print(output)
+    #
+    #     #stream = get_stream(graph)
+    #     # samples = []
+    #     # for k in range(1):
+    #     #     samples.append(next(stream))
+    #     # print(samples)
