@@ -751,32 +751,137 @@ def run_probabilistic_tests():
 
     print('All probabilistic tests passed.')
 
-
+#------------------------------MAIN--------------------------------------------
 if __name__ == '__main__':
+    # Change the path
     daphne_path = '/Users/tony/Documents/prog-prob/CS539-HW-2'
 
+    # Uncomment the appropriate tests to run
     # Deterministic Test
     # run_deterministic_tests()
 
     # Probabilistic Test
     # run_probabilistic_tests()
 
-    #for i in range(4,5):
-    # for i in range(1,5):
-    #     # Note: this path should be with respect to the daphne path!
-    #     # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
-    #     # ast_path = f'./jsons/tests/final/{i}.json'
-    #     # with open(ast_path, 'w') as fout:
-    #     #     json.dump(ast, fout, indent=2)
-    #     # print('\n\n\nSample of prior of program {}:'.format(i))
-    #
-    #     ast_path = f'./jsons/tests/final/{i}.json'
-    #     with open(ast_path) as json_file:
-    #         ast = json.load(json_file)
-    #     #print(ast)
-    #     ret, sig = evaluate_program(ast)
-    #
-    #     print(ret)
-    #
-    #     # Empty globals funcs
-    #     rho = {}
+    for i in range(1,5):
+        # Note: this path should be with respect to the daphne path!
+        # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
+        # ast_path = f'./jsons/tests/final/{i}.json'
+        # with open(ast_path, 'w') as fout:
+        #     json.dump(ast, fout, indent=2)
+        # print('\n\n\nSample of prior of program {}:'.format(i))
+
+        if i == 1:
+            print('Running evaluation-based-sampling for Task number {}:'.format(str(i+1)))
+            ast_path = f'./jsons/tests/final/{i}.json'
+            with open(ast_path) as json_file:
+                ast = json.load(json_file)
+            # print(ast)
+            print("Single Run Evaluation: ")
+            ret, sig = evaluate_program(ast)
+            print("Evaluation Output: ", ret)
+            print("\n")
+
+            print("Expectation: ")
+            stream = get_stream(ast)
+            samples = []
+            for k in range(1000):
+                samples.append(next(stream))
+            # print(samples)
+            all_samples = torch.tensor(samples)
+
+            # print("Evaluation Output: ", all_samples)
+            print("Mean of 1000 samples: ", torch.mean(all_samples))
+            print("\n")
+
+            # Empty globals funcs
+            rho = {}
+
+        elif i == 2:
+            print('Running evaluation-based-sampling for Task number {}:'.format(str(i+1)))
+            ast_path = f'./jsons/tests/final/{i}.json'
+            with open(ast_path) as json_file:
+                ast = json.load(json_file)
+            # print(ast)
+            print("Single Run Evaluation: ")
+            ret, sig = evaluate_program(ast)
+            print("Evaluation Output: ", ret)
+            print("\n")
+
+            print("Expectation: ")
+            stream = get_stream(ast)
+            samples = []
+            for k in range(1000):
+                samples.append(next(stream))
+            # print(samples)
+            all_samples = torch.tensor(samples)
+
+            # print("Evaluation Output: ", all_samples)
+            print("Mean of 1000 samples: ", torch.mean(all_samples))
+            print("\n")
+
+            # Empty globals funcs
+            rho = {}
+
+
+        elif i == 3:
+            print('Running evaluation-based-sampling for Task number {}:'.format(str(i+1)))
+            ast_path = f'./jsons/tests/final/{i}.json'
+            with open(ast_path) as json_file:
+                ast = json.load(json_file)
+            # print(ast)
+            print("Single Run Evaluation: ")
+            ret, sig = evaluate_program(ast)
+            print("Evaluation Output: ", ret)
+            print("\n")
+
+            print("Expectation: ")
+            stream  = get_stream(ast)
+            samples = []
+            for k in range(1000):
+                if k == 0:
+                    samples = next(stream)
+                    samples = samples.unsqueeze(0)
+                    # print(samples.shape)
+                else:
+                    sample  = next(stream)
+                    sample  = sample.unsqueeze(0)
+                    samples = torch.cat((samples, sample), dim=0)
+            # print(samples)
+            print("Evaluation Output: ", samples.shape)
+            print("Mean of 1000 samples for each HMM step: \n", torch.mean(samples, dim=0))
+            print("\n")
+            # Empty globals funcs
+            rho = {}
+
+        elif i == 4:
+            print('Running evaluation-based-sampling for Task number {}:'.format(str(i+1)))
+            ast_path = f'./jsons/tests/final/{i}.json'
+            with open(ast_path) as json_file:
+                ast = json.load(json_file)
+            # print(ast)
+
+            print("Single Run Evaluation: ")
+            ret, sig = evaluate_program(ast)
+            print("Evaluation Output: ", ret.shape)
+            print("\n")
+
+            print("Expectation: ")
+            stream  = get_stream(ast)
+            samples = []
+            for k in range(1000):
+                if k == 0:
+                    samples = next(stream)
+                    samples = samples.unsqueeze(0)
+                    # print(samples.shape)
+                else:
+                    sample  = next(stream)
+                    sample  = sample.unsqueeze(0)
+                    samples = torch.cat((samples, sample), dim=0)
+            # print(samples)
+            print("Evaluation Output: ", samples.shape)
+            print("Mean of 1000 samples for each Neural Network weight(s): \n", torch.mean(samples, dim=0))
+            print("\n")
+            # Empty globals funcs
+            rho = {}
+#-------------------------------------------------------------------------------
