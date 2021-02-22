@@ -1,3 +1,5 @@
+import torch
+
 #--------------------------Useful functions and OPS ---------------------------#
 # Functions
 def _hashmap(x):
@@ -124,3 +126,29 @@ def _totensor(x, dtype=torch.float32):
         else:
             x = torch.tensor([x], dtype=dtype)
     return x
+
+def _mat_repmat(x, r1, r2):
+    # Check if tensor
+    if not torch.is_tensor(x):
+        raise AssertionError('Cannot REPMAT, because input is not tensor')
+    # Check for 0 dimensional tensor
+    if torch.is_tensor(r1):
+        if r1.shape == torch.Size([]):
+            r1 = int(r1.item())
+    if torch.is_tensor(r2):
+        if r2.shape == torch.Size([]):
+            r2 = int(r2.item())
+    x = x.repeat(r1, r2)
+
+    return x
+
+def _mat_transpose(x):
+    # Smart transpose
+    # Check if tensor
+    if not torch.is_tensor(x):
+        raise AssertionError('Cannot Transpose, because input is not tensor')
+    if len(x.shape) == 1:
+        # add an extra dimension
+        x = x.unsqueeze(1)
+
+    return x.T
