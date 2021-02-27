@@ -4,133 +4,11 @@ import torch
 import torch.distributions as distributions
 from daphne import daphne
 from tests import is_tol, run_prob_test,load_truth
-
-#--------------------------Useful functions and OPS ---------------------------#
-# Functions
-def _hashmap(x):
-    # List (key, value, key, value, ....)
-    return_x = {}
-    if len(x)%2 == 0:
-        for i in range(0, len(x)-1, 2):
-            return_x[x[i]] = torch.tensor(x[i+1])
-    else:
-        raise IndexError('Un-even key-value pairs')
-
-    return return_x
-
-def _vector(x):
-    if isinstance(x, list):
-        return torch.tensor(x, dtype=torch.float32)
-    else:
-        # Maybe single value
-        return torch.tensor([x], dtype=torch.float32)
-
-def _put(x, idx_or_key, value):
-    if isinstance(x, dict):
-        try:
-            if not torch.is_tensor(value):
-                value = torch.tensor(value)
-            x[idx_or_key] = value
-        except:
-            raise IndexError('Key {} cannot put in the dict'.format(idx_or_key))
-        return x
-    elif isinstance(x, list):
-        try:
-            x[idx_or_key] = value
-        except:
-            raise IndexError('Index {} is not present in the list'.format(idx_or_key))
-
-        return x
-    elif torch.is_tensor(x):
-        try:
-            if not torch.is_tensor(value):
-                value = torch.tensor(value, dtype=x.dtype)
-            x[idx_or_key] = value
-        except:
-            raise IndexError('Index {} is not present in the list'.format(idx_or_key))
-
-        return x
-    else:
-         raise AssertionError('Unsupported data structure')
-
-def _remove(x, idx_or_key):
-    if isinstance(x, dict):
-        try:
-            if isinstance(idx_or_key, float):
-                idx_or_key = int(idx_or_key)
-            x.pop(idx_or_key, None)
-        except:
-            raise IndexError('Key {} is not present in the dict'.format(idx_or_key))
-        return x
-    elif isinstance(x, list):
-        try:
-            if isinstance(idx_or_key, float):
-                idx_or_key = int(idx_or_key)
-            x.pop(idx_or_key)
-        except:
-            raise IndexError('Index {} is not present in the list'.format(idx_or_key))
-        return x
-    elif torch.is_tensor(x):
-        try:
-            x = torch.cat((x[:idx_or_key], x[(idx_or_key+1):]))
-        except:
-            raise IndexError('Index {} is not present in the tensor'.format(idx_or_key))
-
-        return x
-    else:
-         raise AssertionError('Unsupported data structure')
-
-def _append(x, value):
-    if isinstance(x, list):
-        if isinstance(value, list):
-            x.extend(value)
-        else:
-            # single value
-            x.append(value)
-    elif torch.is_tensor(x):
-        if not torch.is_tensor(value):
-            if isinstance(value, list):
-                value = torch.tensor(value, dtype=x.dtype)
-            else:
-                value = torch.tensor([value], dtype=x.dtype)
-        try:
-            x = torch.cat((x, value))
-        except:
-            raise AssertionError('Cannot append the torch tensors')
-        return x
-    else:
-        raise AssertionError('Unsupported data structure')
-
-def _get(x, idx):
-    if isinstance(x, dict):
-        # Don't change the hash-key
-        return x[idx]
-    elif isinstance(x, list):
-        if isinstance(idx, float):
-            idx = int(idx)
-        return x[idx]
-    elif torch.is_tensor(x):
-        try:
-            if idx.type() == 'torch.FloatTensor':
-                idx = idx.type(torch.LongTensor)
-        except:
-            idx = torch.tensor(idx, dtype=torch.long)
-        return x[idx]
-    else:
-        raise AssertionError('Unsupported data structure')
-
-def _squareroot(x):
-    if not torch.is_tensor(x):
-        x = torch.tensor(x, dtype=torch.float32)
-    return torch.sqrt(x)
-
-def _totensor(x, dtype=torch.float32):
-    if not torch.is_tensor(x):
-        if isinstance(x, list):
-            x = torch.tensor(x, dtype=dtype)
-        else:
-            x = torch.tensor([x], dtype=dtype)
-    return x
+import matplotlib.pyplot as plt
+# Useful functions
+from utils import _hashmap, _vector, _totensor
+from utils import _put, _remove, _append, _get
+from utils import _squareroot, _mat_repmat, _mat_transpose
 
 # OPS
 basic_ops = {'+':torch.add,
@@ -146,12 +24,14 @@ data_struct_ops = {'vector': lambda x: _vector(x),
                    'hash-map': lambda x: _hashmap(x)
 }
 
-data_interact_ops = {'first':lambda x: x[0],      # retrieves the first element of a list or vector e
-                     'last':lambda x: x[-1],      # retrieves the last element of a list or vector e
-                     'get':lambda x, idx: _get(x, idx),              # retrieves an element at index e2 from a list or vector e1, or the element at key e2 from a hash map e1.
+data_interact_ops = {'first': lambda x: x[0],      # retrieves the first element of a list or vector e
+                     'second': lambda x: x[1],     # retrieves the second element of a list or vector e
+                     'last': lambda x: x[-1],      # retrieves the last element of a list or vector e
+                     'rest': lambda x: x[1:],      # retrieves the rest of the element of a list except the first one
+                     'get': lambda x, idx: _get(x, idx),              # retrieves an element at index e2 from a list or vector e1, or the element at key e2 from a hash map e1.
                      'append': lambda x, y: _append(x, y),           # (append e1 e2) appends e2 to the end of a list or vector e1
-                     'remove':lambda x, idx: _remove(x, idx),        # (remove e1 e2) removes the element at index/key e2 with the value e2 in a vector or hash-map e1.
-                     'put':lambda x, idx, value: _put(x, idx, value) # (put e1 e2 e3) replaces the element at index/key e2 with the value e3 in a vector or hash-map e1.
+                     'remove': lambda x, idx: _remove(x, idx),        # (remove e1 e2) removes the element at index/key e2 with the value e2 in a vector or hash-map e1.
+                     'put': lambda x, idx, value: _put(x, idx, value) # (put e1 e2 e3) replaces the element at index/key e2 with the value e3 in a vector or hash-map e1.
 }
 
 dist_ops = {"normal":lambda mu, sig: distributions.normal.Normal(loc=mu, scale=sig),
@@ -165,7 +45,14 @@ cond_ops={"<":  lambda a, b: a < b,
           ">":  lambda a, b: a > b,
           ">=": lambda a, b: a >= b,
           "<=": lambda a, b: a <= b,
-          "|":  lambda a, b: a or b,
+          "|":  lambda a, b: a or b
+}
+
+nn_ops={"mat-tanh": lambda a: torch.tanh(a),
+        "mat-add": lambda a, b: torch.add(a, b),
+        "mat-mul": lambda a, b: torch.matmul(a, b),
+        "mat-repmat": lambda a, b, c: _mat_repmat(a, b, c),
+        "mat-transpose": lambda a: _mat_transpose(a)
 }
 
 # Global vars
@@ -189,7 +76,7 @@ def evaluate_program(ast, sig=None, l={}):
 
     # import pdb; pdb.set_trace()
     if len(ast) == 1:
-        # Check if a single string ast ['mu']
+        # Check if a single string ast [['mu']]
         single_val = False
         if isinstance(ast[0], str):
             root = ast[0]
@@ -201,7 +88,7 @@ def evaluate_program(ast, sig=None, l={}):
         if DEBUG:
             print('Current program: ', ast)
         try:
-            # Check if a single string ast ['mu']
+            # Check if a single string such as ast = ['mu']
             if not single_val:
                 if len(ast) == 1:
                     if isinstance(ast[0], str):
@@ -215,18 +102,89 @@ def evaluate_program(ast, sig=None, l={}):
             # Basic primitives
             if root in basic_ops.keys():
                 op_func = basic_ops[root]
-                eval_1 = evaluate_program([tail[0]], sig, l=l)[0]
+                eval_1  = evaluate_program([tail[0]], sig, l=l)[0]
+                 # Make sure in floating point
                 if torch.is_tensor(eval_1):
                     eval_1 = eval_1.type(torch.float32)
                 elif isinstance(eval_1, int):
                     eval_1 = float(eval_1)
                 if DEBUG:
-                    print('Basic OP eval: ', eval_1)
+                    print('Basic OP eval-1: ', eval_1)
+                    print('Basic OP Tail: ', tail[1:])
                 return [op_func(eval_1, evaluate_program(tail[1:], sig, l=l)[0]), sig]
-            if root in math_ops.keys():
+            # Math ops
+            elif root in math_ops.keys():
                 op_func = math_ops[root]
                 return [op_func(tail), sig]
-            # Data structures-- list and hash-map
+            # NN ops
+            elif root in nn_ops.keys():
+                # import pdb; pdb.set_trace()
+                op_func = nn_ops[root]
+                if root == "mat-add" or root == "mat-mul":
+                    e1, e2 = tail
+                    # Operand-1
+                    if isinstance(e1, list) and len(e1) == 1:
+                        a, _ = evaluate_program(e1, sig, l=l)
+                    elif isinstance(e1, list):
+                        a, _ = evaluate_program([e1], sig, l=l)
+                    else:
+                        # Most likely a pre-defined varibale in l
+                        a = l[e1]
+                    # Operand-2
+                    if isinstance(e2, list) and len(e2) == 1:
+                        b, _ = evaluate_program(e2, sig, l=l)
+                    elif isinstance(e2, list):
+                        b, _ = evaluate_program([e2], sig, l=l)
+                    else:
+                        b = l[e2] # Most likely a pre-defined varibale in l
+                    if DEBUG:
+                        print('Evaluated MatMul-1: ', a)
+                        print('Evaluated MatMul-2: ', b)
+                    # OP
+                    return [op_func(a, b), sig]
+                # ["mat-repmat", "b_0", 1, 5]
+                elif root == "mat-repmat":
+                    e1, e2, e3 = tail
+                    # Initial MAT
+                    if isinstance(e1, list) and len(e1) == 1:
+                        a, _ = evaluate_program(e1, sig, l=l)
+                    elif isinstance(e1, list):
+                        a, _ = evaluate_program([e1], sig, l=l)
+                    else:
+                        a = l[e1] # Most likely a pre-defined varibale in l
+                    # Repeat axis 1
+                    if isinstance(e2, list) and len(e2) == 1:
+                        b, _ = evaluate_program(e2, sig, l=l)
+                    elif isinstance(e2, list):
+                        b, _ = evaluate_program([e2], sig, l=l)
+                    elif isinstance(e2, float) or isinstance(e2, int):
+                        b = int(e2)
+                    else:
+                        b = l[e2] # Most likely a pre-defined varibale in l
+                    # Repeat axis 2
+                    if isinstance(e3, list) and len(e3) == 1:
+                        c, _ = evaluate_program(e3, sig, l=l)
+                    elif isinstance(e3, list):
+                        c, _ = evaluate_program([e3], sig, l=l)
+                    elif isinstance(e3, float) or isinstance(e3, int):
+                        c = int(e3)
+                    else:
+                        c = l[e3] # Most likely a pre-defined varibale in l
+                    # OP
+                    return [op_func(a, b, c), sig]
+                else:
+                    e1 = tail
+                    if isinstance(e1, list) and len(e1) == 1:
+                        a, _ = evaluate_program(e1, sig, l=l)
+                    elif isinstance(e1, list):
+                        a, _ = evaluate_program([e1], sig, l=l)
+                    else:
+                        a = l[e1] # Most likely a pre-defined varibale in l
+                    if DEBUG:
+                        print('Evaluated Matrix: ', a)
+                    # OP
+                    return [op_func(a), sig]
+            # Data structures-- Vector
             elif root == "vector":
                 # import pdb; pdb.set_trace()
                 op_func = data_struct_ops[root]
@@ -264,6 +222,7 @@ def evaluate_program(ast, sig=None, l={}):
                     # Check for 0 dimensional tensor
                     elif eval_T.shape == torch.Size([]):
                         eval_T = torch.tensor([eval_T.item()], dtype=torch.float32)
+                    # Concat
                     try:
                         tail_data = torch.cat((tail_data, eval_T))
                     except:
@@ -271,15 +230,15 @@ def evaluate_program(ast, sig=None, l={}):
                 if DEBUG:
                     print('Eval Data Structure data: ', tail_data)
                 return [tail_data, sig]
-            # Data structures-- list and hash-map
+            # Data structures-- hash-map
             elif root == "hash-map":
                 op_func = data_struct_ops[root]
                 return [op_func(tail), sig]
             # Data structures interaction
             elif root in data_interact_ops.keys():
                 op_func = data_interact_ops[root]
+                # ['put', ['vector', 2, 3, 4, 5], 2, 3]
                 if root == 'put':
-                    # ['put', ['vector', 2, 3, 4, 5], 2, 3]
                     e1, e2, e3 = tail
                     if isinstance(e1, list):
                         get_data_struct, _ = evaluate_program([e1], sig, l=l)
@@ -290,7 +249,7 @@ def evaluate_program(ast, sig=None, l={}):
                     if isinstance(e2, list):
                         e2_idx, _ = evaluate_program([e2], sig, l=l)
                     elif isinstance(e2, float) or isinstance(e2, int):
-                        e2_idx = e2
+                        e2_idx = int(e2)
                     else:
                         # Most likely a pre-defined varibale in l
                         e2_idx = l[e2]
@@ -307,8 +266,8 @@ def evaluate_program(ast, sig=None, l={}):
                         print('Index: ', e2_idx)
                         print('Value: ', e3_val)
                     return [op_func(get_data_struct, e2_idx, e3_val), sig]
+                # ['remove'/'get', ['vector', 2, 3, 4, 5], 2]
                 elif root == 'remove' or root == 'get':
-                    # ['remove'/'get', ['vector', 2, 3, 4, 5], 2]
                     # import pdb; pdb.set_trace()
                     e1, e2 = tail
                     if isinstance(e1, list):
@@ -323,54 +282,71 @@ def evaluate_program(ast, sig=None, l={}):
                     else:
                         # Otherwise Most likely a pre-defined varibale in l
                         e2_idx = l[e2]
+                    # Convert index to type-int
+                    if torch.is_tensor(e2_idx):
+                        e2_idx = e2_idx.long()
+                    else:
+                        e2_idx = int(e2_idx)
                     if DEBUG:
                         print('Data : ', get_data_struct)
                         print('Index/Value: ', e2_idx)
                     return [op_func(get_data_struct, e2_idx), sig]
+                # ['append', ['vector', 2, 3, 4, 5], 2]
                 elif root == 'append':
-                    # ['remove'/'append'/'get', ['vector', 2, 3, 4, 5], 2]
                     # import pdb; pdb.set_trace()
-                    all_data_eval = torch.zeros(0, dtype=torch.float32)
-                    for each_var in tail:
-                        if DEBUG:
-                            print('Op Pre-Eval: ', each_var)
-                        if isinstance(each_var, list):
-                            get_data_eval, _ = evaluate_program([each_var], sig, l=l)
-                        elif isinstance(each_var, float) or isinstance(each_var, int):
-                            get_data_eval = each_var
-                        else:
-                            # Most likely a pre-defined varibale in l
-                            get_data_eval = l[each_var]
-                        if DEBUG:
-                            print('Op Eval: ', get_data_eval)
-                        # Check if not torch tensor
-                        if not torch.is_tensor(get_data_eval):
-                            if isinstance(get_data_eval, list):
-                                get_data_eval = torch.tensor(get_data_eval, dtype=torch.float32)
-                            else:
-                                get_data_eval = torch.tensor([get_data_eval], dtype=torch.float32)
-                        # Check for 0 dimensional tensor
-                        elif get_data_eval.shape == torch.Size([]):
-                            get_data_eval = torch.tensor([get_data_eval.item()], dtype=torch.float32)
-                        try:
-                            all_data_eval = torch.cat((all_data_eval, get_data_eval))
-                        except:
-                            raise AssertionError('Cannot append the torch tensors')
-                    # if DEBUG:
-                    #     print('Pre-Tensor Data : ', all_data_eval)
-                    # all_data_eval = _totensor(x=all_data_eval)
+                    get_list1, get_list2 = tail
+                    # Evalute exp1
+                    if isinstance(get_list1, list):
+                        get_data_eval_1, _ = evaluate_program([get_list1], sig, l=l)
+                    elif isinstance(get_list1, float) or isinstance(get_list1, int):
+                        get_data_eval_1 = get_list1
+                    else:
+                        get_data_eval_1 = l[get_list1] # Most likely a pre-defined varibale in l
                     if DEBUG:
-                        print('Data : ', all_data_eval)
+                        print('Op Eval-1: ', get_data_eval_1)
+                    # Evalute exp2
+                    if isinstance(get_list2, list):
+                        get_data_eval_2, _ = evaluate_program([get_list2], sig, l=l)
+                    elif isinstance(get_list2, float) or isinstance(get_list2, int):
+                        get_data_eval_2 = get_list2
+                    else:
+                        get_data_eval_2 = l[get_list2] # Most likely a pre-defined varibale in l
+                    if DEBUG:
+                        print('Op Eval-2: ', get_data_eval_2)
+                    # Check if not torch tensor
+                    if not torch.is_tensor(get_data_eval_1):
+                        if isinstance(get_data_eval_1, list):
+                            get_data_eval_1 = torch.tensor(get_data_eval_1, dtype=torch.float32)
+                        else:
+                            get_data_eval_1 = torch.tensor([get_data_eval_1], dtype=torch.float32)
+                    # Check for 0 dimensional tensor
+                    elif get_data_eval_1.shape == torch.Size([]):
+                        get_data_eval_1 = torch.tensor([get_data_eval_1.item()], dtype=torch.float32)
+                    # Check if not torch tensor
+                    if not torch.is_tensor(get_data_eval_2):
+                        if isinstance(get_data_eval_2, list):
+                            get_data_eval_2 = torch.tensor(get_data_eval_2, dtype=torch.float32)
+                        else:
+                            get_data_eval_2 = torch.tensor([get_data_eval_2], dtype=torch.float32)
+                    # Check for 0 dimensional tensor
+                    elif get_data_eval_2.shape == torch.Size([]):
+                        get_data_eval_2 = torch.tensor([get_data_eval_2.item()], dtype=torch.float32)
+                    # Append
+                    try:
+                        all_data_eval = torch.cat((get_data_eval_1, get_data_eval_2))
+                    except:
+                        raise AssertionError('Cannot append the torch tensors')
+                    if DEBUG:
+                        print('Appended Data : ', all_data_eval)
                     return [all_data_eval, sig]
                 else:
-                    # ['First'/'last', ['vector', 2, 3, 4, 5]]
+                    # ['First'/'last'/'rest', ['vector', 2, 3, 4, 5]]
                     e1 = tail
                     if isinstance(e1, list):
                         get_data_struct, _ = evaluate_program(e1, sig, l=l)
                     else:
                         # Most likely a pre-defined varibale in l
                         get_data_struct = l[e1]
-                    get_data_struct, _ = evaluate_program(tail, sig, l=l)
                     if DEBUG:
                         print('Data : ', get_data_struct)
                     return [op_func(get_data_struct), sig]
@@ -383,16 +359,16 @@ def evaluate_program(ast, sig=None, l={}):
                     print('Conditional param-2: ', tail[1])
                 a = evaluate_program([tail[0]], sig, l=l)
                 b = evaluate_program([tail[1]], sig, l=l)
+                # In case of functions returning only a single value & not sigma
                 try:
                     a = a[0]
                 except:
-                    # In case of functions returning only a single value & not sigma
                     pass
                 try:
                     b = b[0]
                 except:
                     pass
-                # If torch tensors convert to python data struct for comparison
+                # If torch tensors convert to python data types for comparison
                 if torch.is_tensor(a):
                     a = a.tolist()
                     if isinstance(a, list):
@@ -408,35 +384,25 @@ def evaluate_program(ast, sig=None, l={}):
             # Assign
             elif root == 'let':
                 # (let [params] body)
-                # tail-0: params
+                let_param_name = tail[0][0]
+                let_param_value = tail[0][1]
+                let_body = tail[1]
                 if DEBUG:
-                    print('Total params in let: ', len(tail[0]))
-                for e1 in range(0, len(tail[0]), 2):
-                    if DEBUG:
-                        print('Vars: ', tail[0][e1])
-                        print('Expr: ', tail[0][e1+1])
-                    if isinstance(tail[0][e1+1], str):
-                        let_exp = [tail[0][e1+1]]
-                    else:
-                        let_exp = tail[0][e1+1]
-                    v1 = tail[0][e1]
-                    e1 = evaluate_program([let_exp], sig, l=l)
-                    try:
-                        # In case of sampler only a single return
-                        e1 = e1[0]
-                    except:
-                        pass
-                    l[v1] = e1
+                    print('Let param name: ', let_param_name)
+                    print('Let params value: ', let_param_value)
+                    print('Let body: ', let_body)
+                # Evaluate params
+                let_param_value_eval, _ = evaluate_program([let_param_value], sig, l=l)
+                # Add to local variables
+                l[let_param_name] = let_param_value_eval
                 # Check for single instance string
-                if isinstance(tail[1], str):
-                    recur_program = [tail[1]]
-                else:
-                    recur_program = tail[1]
+                if isinstance(let_body, str):
+                    let_body = [let_body]
                 if DEBUG:
                     print('Local Params :  ', l)
-                    print('Recursive Body: ', recur_program)
-                # tail-1 body
-                return evaluate_program([recur_program], sig, l=l)
+                    print('Recursive Body: ', let_body, "\n")
+                # Evaluate body
+                return evaluate_program([let_body], sig, l=l)
             # Assign
             elif root == "if":
                 # (if e1 e2 e3)
@@ -466,7 +432,7 @@ def evaluate_program(ast, sig=None, l={}):
                     print('Function Name : ', fnname)
                     print('Function Param: ', fnparams)
                     print('Function Body : ', fnbody)
-
+                # Check if already present
                 if fnname in rho.keys():
                     return [fnname, None]
                 else:
@@ -474,7 +440,7 @@ def evaluate_program(ast, sig=None, l={}):
                     rho[fnname] = [fnparams, fnbody]
                     if DEBUG:
                         print('Local Params : ', l)
-                        print('Global Funcs : ', rho)
+                        print('Global Funcs : ', rho, "\n")
                     return [fnname, None]
             # Get distribution
             elif root in dist_ops.keys():
@@ -500,7 +466,7 @@ def evaluate_program(ast, sig=None, l={}):
                     para2 = _totensor(x=para2)
                     if DEBUG:
                         print('Eval Sampler Parameter-1: ', para1)
-                        print('Eval Sampler Parameter-2: ', para2)
+                        print('Eval Sampler Parameter-2: ', para2, "\n")
                     return [op_func(para1, para2), sig]
                 else:
                     # Exponential has only one parameter
@@ -517,7 +483,7 @@ def evaluate_program(ast, sig=None, l={}):
                     # Make sure to have it in torch tensor
                     para1 = _totensor(x=para1)
                     if DEBUG:
-                        print('Tensor Sampler Parameter-1: ', para1)
+                        print('Tensor Sampler Parameter-1: ', para1, "\n")
                     return [op_func(para1), sig]
             # Sample
             elif root == 'sample':
@@ -550,125 +516,61 @@ def evaluate_program(ast, sig=None, l={}):
                     print('Observe Param-1: ', ob_pm1)
                     print('Observe Param-2: ', ob_pm2)
                 # Evaluate observe params
-                # dist  = evaluate_program([ob_pm1], sig, l=l)[0]
-                value = evaluate_program([ob_pm2], sig, l=l)[0]
+                dist, sig  = evaluate_program([ob_pm1], sig, l=l)
+                value, sig = evaluate_program([ob_pm2], sig, l=l)
                 value = _totensor(x=value)
                 if DEBUG:
-                    print('Observed Value: ', value)
+                    print('Observed Value: ', value, "\n")
                 return [value, sig]
+            # Most likely a single element list or function name
             else:
-                # Most likely a single element list
                 if DEBUG:
                     print('End case Root Value: ', root)
                     print('End case Tail Value: ', tail)
-                if tail == [] or len(ast) == 2:
-                    # Check in local vars
-                    if root in l.keys():
-                        return [l[root], sig]
-                    # Check in Functions vars
-                    elif root in rho.keys():
-                        # import pdb; pdb.set_trace()
-                        fnparams_ = {}
-                        fnparams, fnbody =rho[root]
-                        if len(tail) != len(fnparams):
-                            raise AssertionError('Function params mis-match!')
-                        else:
-                            for k in range(len(tail)):
-                                fnparams_[fnparams[k]] = evaluate_program([tail[k]], sig, l=l)[0]
-                        if DEBUG:
-                            print('Function Params :', fnparams_)
-                            print('Function Body :', fnbody)
-                        # Evalute function body
-                        eval_output = [evaluate_program([fnbody], sig, l=fnparams_)[0], sig]
-                        if DEBUG:
-                            print('Function evaluation output: ', eval_output)
-
-                        return eval_output
+                # Check in local vars
+                if root in l.keys():
+                    return [l[root], sig]
+                # Check in Functions vars
+                elif root in rho.keys():
+                    # import pdb; pdb.set_trace()
+                    fnparams_ = {**l}
+                    fnparams, fnbody =rho[root]
+                    if len(tail) != len(fnparams):
+                        raise AssertionError('Function params mis-match!')
                     else:
-                        return [root, sig]
+                        for k in range(len(tail)):
+                            fnparams_[fnparams[k]] = evaluate_program([tail[k]], sig, l=l)[0]
+                    if DEBUG:
+                        print('Function Params :', fnparams_)
+                        print('Function Body :', fnbody)
+                    # Evalute function body
+                    eval_output = [evaluate_program([fnbody], sig, l=fnparams_)[0], sig]
+                    if DEBUG:
+                        print('Function evaluation output: ', eval_output)
+                    return eval_output
                 else:
-                    try:
-                        if DEBUG:
-                            print('End case ast Value: ', ast)
-                            print('End case Local Params :', l)
-                        # Maybe a single variable "mu" for split as root=m and tail=u
-                        if ast in l.keys():
-                            return [l[ast], sig]
-                        # Check in Functions vars
-                        elif ast in rho.keys():
-                            # import pdb; pdb.set_trace()
-                            fnparams_ = {}
-                            fnparams, fnbody =rho[ast]
-                            if len(tail) != len(fnparams):
-                                raise AssertionError('Function params mis-match!')
-                            else:
-                                for k in range(len(tail)):
-                                    fnparams_[fnparams[k]] = evaluate_program([tail[k]], sig, l=l)[0]
-                            if DEBUG:
-                                print('Function Params :', fnparams_)
-                                print('Function Body :', fnbody)
-                            # Evalute function body
-                            eval_output = [evaluate_program([fnbody], sig, l=fnparams_)[0], sig]
-                            if DEBUG:
-                                print('Function evaluation output: ', eval_output)
-                            return eval_output
-                        else:
-                            raise AssertionError('Unknown list with unsupported ops.')
-                    except:
-                        # Check in local vars
-                        if root in l.keys():
-                            return [l[root], sig]
-                        # Check in Functions vars
-                        elif root in rho.keys():
-                            # import pdb; pdb.set_trace()
-                            fnparams_ = {}
-                            fnparams, fnbody =rho[root]
-                            if len(tail) != len(fnparams):
-                                raise AssertionError('Function params mis-match!')
-                            else:
-                                for k in range(len(tail)):
-                                    fnparams_[fnparams[k]] = evaluate_program([tail[k]], sig, l=l)[0]
-                            if DEBUG:
-                                print('Function Params :', fnparams_)
-                                print('Function Body :', fnbody)
-                            # Evalute function body
-                            eval_output = [evaluate_program([fnbody], sig, l=fnparams_)[0], sig]
-                            if DEBUG:
-                                print('Function evaluation output: ', eval_output)
-                            return eval_output
-                        else:
-                            return [root, sig]
+                    return [root, sig]
         except:
             # Just a single element
             return [ast, sig]
     else:
-        outputs = []
-        for i in range(0, len(ast)):
-            ast_i = ast[i]
-            try:
-                cisigma = evaluate_program([ast_i], sig, l=l)[0]
-                if i != 0:
-                    if len(cisigma) == 2:
-                        outputs.extend([cisigma[0]])
-                    else:
-                        outputs.extend([cisigma])
-            except:
-                raise AssertionError('Unsupported!')
-
-        # Remove any None
-        outputs_ = [output for output in outputs if output is not None]
-
-        if len(outputs_) == 1:
-            return_outputs_ = outputs_[0]
-        else:
-            # Just in case of multiple outputs
-            return_outputs_ = []
-            return_outputs_.extend(outputs_)
-
+        # Parse functions
+        for func in range(len(ast)-1):
+            if DEBUG:
+                print('Function: ', ast[func])
+            fname, _ = evaluate_program([ast[func]], sig=None, l={})
+            if DEBUG:
+                print('Parsed function: ', fname)
+                print("\n")
+        # Evaluate Expression
+        try:
+            outputs_, sig = evaluate_program([ast[-1]], sig=None, l={})
+        except:
+            raise AssertionError('Failed to evaluate expression!')
         if DEBUG:
-            print('Final output: ', return_outputs_)
-
-        return [return_outputs_, sig]
+            print('Final output: ', outputs_)
+        # Return
+        return [outputs_, sig]
 
     return [None, sig]
 
@@ -763,7 +665,8 @@ if __name__ == '__main__':
     # Probabilistic Test
     # run_probabilistic_tests()
 
-    for i in range(1,5):
+    #for i in range(1,5):
+    for i in range(4,5):
         # Note: this path should be with respect to the daphne path!
         # ast = daphne(['desugar', '-i', f'{daphne_path}/src/programs/{i}.daphne'])
         # ast_path = f'./jsons/tests/final/{i}.json'
@@ -777,6 +680,7 @@ if __name__ == '__main__':
             with open(ast_path) as json_file:
                 ast = json.load(json_file)
             # print(ast)
+
             print("Single Run Evaluation: ")
             ret, sig = evaluate_program(ast)
             print("Evaluation Output: ", ret)
@@ -787,6 +691,7 @@ if __name__ == '__main__':
             samples = []
             for k in range(1000):
                 samples.append(next(stream))
+
             # print(samples)
             all_samples = torch.tensor(samples)
 
@@ -803,6 +708,8 @@ if __name__ == '__main__':
             with open(ast_path) as json_file:
                 ast = json.load(json_file)
             # print(ast)
+            # print(len(ast))
+
             print("Single Run Evaluation: ")
             ret, sig = evaluate_program(ast)
             print("Evaluation Output: ", ret)
@@ -812,17 +719,26 @@ if __name__ == '__main__':
             stream = get_stream(ast)
             samples = []
             for k in range(1000):
-                samples.append(next(stream))
-            # print(samples)
-            all_samples = torch.tensor(samples)
-
-            # print("Evaluation Output: ", all_samples)
-            print("Mean of 1000 samples: ", torch.mean(all_samples))
+                if k == 0:
+                    samples = next(stream)
+                    samples = samples.unsqueeze(0)
+                    print(samples.shape)
+                else:
+                    sample  = next(stream)
+                    sample  = sample.unsqueeze(0)
+                    samples = torch.cat((samples, sample), dim=0)
+            print("Evaluation Output: ", samples.shape)
+            print("Mean of 1000 samples: ", torch.mean(samples, dim=0))
             print("\n")
+
+            # print(samples)
+            fig, (ax1, ax2) = plt.subplots(2, 1)
+            ax1.hist([a[0] for a in samples])
+            ax2.hist([a[1] for a in samples])
+            plt.savefig(f'plots/2.png')
 
             # Empty globals funcs
             rho = {}
-
 
         elif i == 3:
             print('Running evaluation-based-sampling for Task number {}:'.format(str(i+1)))
@@ -830,10 +746,10 @@ if __name__ == '__main__':
             with open(ast_path) as json_file:
                 ast = json.load(json_file)
             # print(ast)
-            print("Single Run Evaluation: ")
-            ret, sig = evaluate_program(ast)
-            print("Evaluation Output: ", ret)
-            print("\n")
+            # print("Single Run Evaluation: ")
+            # ret, sig = evaluate_program(ast)
+            # print("Evaluation Output: ", ret)
+            # print("\n")
 
             print("Expectation: ")
             stream  = get_stream(ast)
@@ -851,6 +767,12 @@ if __name__ == '__main__':
             print("Evaluation Output: ", samples.shape)
             print("Mean of 1000 samples for each HMM step: \n", torch.mean(samples, dim=0))
             print("\n")
+
+            fig, axs = plt.subplots(3,6)
+            png = [axs[i//6,i%6].hist([a[i] for a in samples]) for i in range(17)]
+            plt.tight_layout()
+            plt.savefig(f'plots/p3.png')
+
             # Empty globals funcs
             rho = {}
 
@@ -861,10 +783,10 @@ if __name__ == '__main__':
                 ast = json.load(json_file)
             # print(ast)
 
-            print("Single Run Evaluation: ")
-            ret, sig = evaluate_program(ast)
-            print("Evaluation Output: ", ret.shape)
-            print("\n")
+            # print("Single Run Evaluation: ")
+            # ret, sig = evaluate_program(ast)
+            # print("Evaluation Output: ", ret.shape)
+            # print("\n")
 
             print("Expectation: ")
             stream  = get_stream(ast)
@@ -880,8 +802,18 @@ if __name__ == '__main__':
                     samples = torch.cat((samples, sample), dim=0)
             # print(samples)
             print("Evaluation Output: ", samples.shape)
+            W_0 = samples[:, 0:10]
+            b_0 = samples[:, 10:20]
+            W_1 = samples[:, 20:120]
+            b_1 = samples[:, 120:]
+
+            print("W_0: ", W_0.shape)
+            print("b_0: ", b_0.shape)
+            print("W_1: ", W_1.shape)
+            print("b_1: ", b_1.shape)
             print("Mean of 1000 samples for each Neural Network weight(s): \n", torch.mean(samples, dim=0))
             print("\n")
+
             # Empty globals funcs
             rho = {}
 #-------------------------------------------------------------------------------
